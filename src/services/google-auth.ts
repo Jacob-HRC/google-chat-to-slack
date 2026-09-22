@@ -23,6 +23,11 @@ export const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/chat.memberships.readonly',
   'https://www.googleapis.com/auth/drive.readonly',
   'https://www.googleapis.com/auth/admin.directory.user.readonly',
+  // Admin-level space search and membership listing, used only to report
+  // named spaces that no selected user can read. Requires the admin subject
+  // to hold the "manage chat and spaces conversations" privilege.
+  'https://www.googleapis.com/auth/chat.admin.spaces.readonly',
+  'https://www.googleapis.com/auth/chat.admin.memberships.readonly',
 ] as const;
 
 export const GOOGLE_AUTH_MODES = {

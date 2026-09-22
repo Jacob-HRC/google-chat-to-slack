@@ -212,6 +212,94 @@ These are the reasons the upstream tool cannot move HighRidge's DMs as-is:
    match against Slack accounts.
 6. **No resume.** A crash restarts the whole export.
 
+## Workspace export store (Phase 2)
+
+`export-workspace` (`src/services/workspace-export.ts`) is a second export
+path that does not touch the legacy `export.json`. It writes an additive store
+whose shapes are declared in `src/types/export-store.ts`:
+
+```
+data/workspace/
+├── manifest.json                 store version, run history, last run status
+├── users.json                    users/<id> → StoredUser (email, name, status, placeholder)
+├── spaces/<spaceId>/
+│   ├── space.json                raw Space, memberships, readers, readerSubject
+│   ├── messages.json             StoredMessage[] sorted by createTime
+│   └── state.json                sync status, counts, maxCreateTime
+├── attachments/
+│   ├── index.json                key → AttachmentRecord (status, sha256, Drive metadata)
+│   └── files/<spaceId>/<messageId>/<original name>
+├── unreachable-spaces.json       named spaces no selected user can read (admin sweep)
+├── runs/<runId>.json             RunReport: per-user, per-space counts
+└── logs/<runId>.log
+```
+
+### Run flow
+
+1. `listDomainUsers(selection)` picks the subjects to impersonate (active
+   users only; suspended users cannot be impersonated).
+2. `listSpacesAs(subject)` for each subject, then `dedupeDiscoveredSpaces()`
+   keys spaces by id and records every subject that can read each one. A DM
+   between two selected users therefore appears once with two readers.
+3. Optional admin sweep: `spaces.search` with `useAdminAccess` lists every
+   named Space in the customer; those not discovered in step 2 are reported
+   with their members. DMs cannot be found this way (the API only returns
+   `spaceType = "SPACE"`).
+4. Per space, sequentially: memberships → messages → merge → reactions →
+   user resolution → attachment index → downloads → state `complete`.
+   Each step persists before the next starts, so a crash costs at most one
+   space's partial work; `--resume` reuses the interrupted run id and skips
+   spaces already complete in it.
+
+### Merge rules (`mergeMessages`, pure, tested)
+
+- Keyed by message resource name. Content hash covers text, formattedText,
+  lastUpdateTime, deleteTime, attachments, GIFs, annotations, reaction
+  summaries, quoted message and thread.
+- New → added. Hash changed → updated; the previous `raw` goes into `history`.
+- Google reports `deleteTime` → marked deleted; content is no longer returned
+  by the API, so the last stored `raw` is kept and the deletion recorded next
+  to it.
+- Present in store, absent from a **complete** listing, no deletion marker →
+  `missingSince` set. Never removed. A later listing that returns it clears
+  the flag (`reappeared`).
+- `--since` listings are partial: nothing is marked missing.
+- Reactions are re-fetched when the reaction summary changes or was never
+  fetched.
+
+### Timestamps
+
+`toSlackTs()` converts RFC 3339 to `seconds.microseconds` with integer
+arithmetic (no floating point) and truncates nanoseconds. The original
+`createTime`, `lastUpdateTime` and `deleteTime` strings stay in `raw`.
+
+### Attachments
+
+`buildAttachmentRecords()` indexes, per message: `attachment[]` entries
+(`UPLOADED_CONTENT` via the Chat media endpoint, `DRIVE_FILE` via Drive),
+`attachedGifs[]` (public URLs), and Drive ids found by `extractLinks()` in
+rich-link annotations or message text (`DRIVE_LINK`, metadata only unless
+`--drive-links download`). Downloads stream to disk while hashing (sha256 and
+md5); Drive binaries are checked against `md5Checksum`. Google-native files
+are exported (`chooseExportFormat()`: docx/xlsx/pptx or pdf); folders,
+shortcuts and forms stay link-only. Drive access is tried as the reader, then
+the sender, then other active selected members (`withSubjectFallback()`),
+because Drive permissions are per user. Every record keeps the full Drive
+metadata (owner, timestamps, MIME type, size, webViewLink).
+
+### People
+
+`resolveChatUsers()` maps `users/<id>` to Directory records by id. Missing
+records become placeholders: `deleted`, `external` (by membership
+affiliation), `bot`, or `unknown` (lookup error; retried next run). Chat's
+`displayName`, when Google populates it, is kept as the placeholder name.
+
+### Verification (`verify`)
+
+`verifyExportStore()` re-lists each space as its reader and compares message
+name sets and deleted counts; checks each attachment record's file exists and
+re-hashes it; counts unresolved people. `--no-live` runs offline.
+
 ## Research notes
 
 Findings from official documentation, kept here so the code does not rest on
@@ -235,6 +323,41 @@ guesses. Each item cites where it came from.
   `member.type` (`HUMAN`/`BOT`), `state` and `role`. Page size max 1000.
   User scope: `chat.memberships.readonly`.
   (…/api/reference/rest/v1/spaces.members/list)
+
+- **`spaces.messages.list`** filter syntax: `createTime > "2012-04-21T11:30:00-04:00"`
+  (RFC 3339 in double quotes), `thread.name = spaces/{space}/threads/{thread}`,
+  joined with `AND`. `orderBy` is `createTime ASC|DESC`. Page size max 1000.
+  With `showDeleted=true`, deleted messages are returned with "deleted time and
+  metadata about their deletion, but message content is unavailable."
+  (…/api/reference/rest/v1/spaces.messages/list)
+- **Message resource** carries `createTime` (nanosecond RFC 3339),
+  `lastUpdateTime`, `deleteTime`, `deletionMetadata.deletionType`
+  (CREATOR, SPACE_OWNER, ADMIN, APP_MESSAGE_EXPIRY, CREATOR_VIA_APP,
+  SPACE_OWNER_VIA_APP, SPACE_MEMBER), `attachment[]`, `attachedGifs[]`,
+  `annotations[]` with `RICH_LINK` → `driveLinkData.driveDataRef.driveFileId`
+  and `mimeType`, `emojiReactionSummaries[]`, `quotedMessageMetadata`,
+  `threadReply`. (…/api/reference/rest/v1/spaces.messages)
+- **`spaces.messages.reactions.list`** returns per-user reactions
+  (`user.name`, `emoji.unicode` or `emoji.customEmoji.uid`). Accepts
+  `chat.messages.readonly`, so no extra scope is needed. Page size max 200.
+  (…/api/reference/rest/v1/spaces.messages.reactions/list)
+- **`spaces.search`** with `useAdminAccess=true` needs the admin subject to
+  hold the "manage chat and spaces conversations" privilege and
+  `chat.admin.spaces.readonly`. Query must be
+  `customer = "customers/my_customer" AND spaceType = "SPACE"`; only named
+  spaces are returned. (…/api/reference/rest/v1/spaces/search)
+- **Membership resource**: `state` JOINED/INVITED/NOT_A_MEMBER, `role`,
+  `affiliation` INTERNAL/EXTERNAL/MANAGED_EXTERNAL, `member` (User) or
+  `groupMember` (Group). The docs do not promise `displayName` for humans
+  under user auth, so names come from the Directory.
+  (…/api/reference/rest/v1/spaces.members)
+
+### Google Drive API
+
+- **Export formats**: Docs → docx/odt/rtf/pdf/txt/html/epub/md; Sheets →
+  xlsx/ods/pdf/csv/tsv; Slides → pptx/odp/pdf/txt; Drawings → pdf/jpeg/png/svg;
+  Apps Script → json. Forms, Sites, Jamboard and folders have no export.
+  (developers.google.com/workspace/drive/api/guides/ref-export-formats)
 
 ### Admin SDK Directory API
 

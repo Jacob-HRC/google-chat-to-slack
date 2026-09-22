@@ -1,4 +1,4 @@
-import { writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 export type LogLevel = 'error' | 'warning';
@@ -9,7 +9,17 @@ export type LogType =
   | 'file_copy'
   | 'file_upload'
   | 'message_post'
-  | 'reaction_add';
+  | 'reaction_add'
+  | 'space_list'
+  | 'membership_list'
+  | 'message_list'
+  | 'reaction_list'
+  | 'drive_metadata'
+  | 'drive_download'
+  | 'user_resolve'
+  | 'admin_search'
+  | 'store'
+  | 'verify';
 
 export interface LogEntry {
   timestamp: string;
@@ -75,6 +85,10 @@ export class Logger {
     });
   }
 
+  getEntries(): readonly LogEntry[] {
+    return this.entries;
+  }
+
   hasErrors(): boolean {
     return this.getErrorCount() > 0;
   }
@@ -99,58 +113,40 @@ export class Logger {
     return this.entries.length;
   }
 
-  getErrorsByType(): Record<LogType, number> {
-    const counts = {
-      attachment_download: 0,
-      user_fetch: 0,
-      avatar_download: 0,
-      file_copy: 0,
-      file_upload: 0,
-      message_post: 0,
-      reaction_add: 0,
-    };
-
-    for (const entry of this.entries.filter((e) => e.level === 'error')) {
-      counts[entry.type]++;
+  private countByType(level: LogLevel): Record<string, number> {
+    const counts: Record<string, number> = {};
+    for (const entry of this.entries) {
+      if (entry.level === level) {
+        counts[entry.type] = (counts[entry.type] ?? 0) + 1;
+      }
     }
-
     return counts;
   }
 
-  getWarningsByType(): Record<LogType, number> {
-    const counts = {
-      attachment_download: 0,
-      user_fetch: 0,
-      avatar_download: 0,
-      file_copy: 0,
-      file_upload: 0,
-      message_post: 0,
-      reaction_add: 0,
-    };
-
-    for (const entry of this.entries.filter((e) => e.level === 'warning')) {
-      counts[entry.type]++;
-    }
-
-    return counts;
+  getErrorsByType(): Record<string, number> {
+    return this.countByType('error');
   }
 
-  async writeLog(baseDir?: string): Promise<string> {
+  getWarningsByType(): Record<string, number> {
+    return this.countByType('warning');
+  }
+
+  /**
+   * Writes the log. With `baseDir` the file goes to `<baseDir>/logs/<name>`;
+   * without it, to `data/logs/output.log` relative to the working directory.
+   */
+  async writeLog(baseDir?: string, fileName = 'output.log'): Promise<string> {
     if (!this.hasIssues()) {
       return '';
     }
 
-    // Use centralized logs directory
     const logsDir = baseDir
-      ? path.join(baseDir, 'data', 'logs')
+      ? path.join(baseDir, 'logs')
       : path.resolve('data/logs');
-    const logPath = path.join(logsDir, 'output.log');
+    const logPath = path.join(logsDir, fileName);
     const logContent = this.formatLog();
 
-    // Ensure logs directory exists
-    const { mkdir } = require('node:fs/promises');
     await mkdir(logsDir, { recursive: true });
-
     await writeFile(logPath, logContent, 'utf-8');
     return logPath;
   }

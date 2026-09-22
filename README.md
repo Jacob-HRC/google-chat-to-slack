@@ -11,6 +11,7 @@ A CLI tool for migrating channels, messages, threads, attachments, and reactions
 ## Features
 
 - **Complete Migration**: Export all channels, messages, threads, attachments, and reactions
+- **Whole workspace**: with a delegated service account, `export-workspace` also captures every user's DMs and group chats, deleted and edited messages, per-user reactions, Drive links and file metadata, with delta re-runs, dry runs and a `verify` command
 - **Selective Migration**: Choose specific spaces/channels to migrate
 - **User Mentions**: Preserves user mentions in a message (as text, not creating the users themselves)
 - **Rate Limited**: Respects both Google Chat and Slack API limits
@@ -263,6 +264,80 @@ googletoslack migrate --channel-rename "old-name=new-name"
 ```
 
 ### Individual Steps
+
+### Whole-workspace export (DMs included)
+
+`export-workspace` reads every selected user's Spaces, group chats and DMs
+through the delegated service account and writes them into an **additive
+store** (default `~/.config/googletoslack/data/workspace/`, or `data/workspace/`
+in a checkout). It never deletes or truncates; re-running it produces a delta.
+
+```bash
+# Preview: users, spaces, members, message counts and what would change. Writes nothing.
+googletoslack export-workspace --dry-run
+
+# Pilot: two users and one space
+googletoslack export-workspace --user a@example.com --user b@example.com --space general
+
+# Full export (first run) or delta (later runs)
+googletoslack export-workspace
+
+# Continue an interrupted run
+googletoslack export-workspace --resume
+
+# Fast delta: only messages created after a timestamp (does not see edits or deletions of older messages)
+googletoslack export-workspace --since 2026-09-01T00:00:00Z
+
+# Also download copies of Docs/Sheets/Drive files that are merely linked in message text
+googletoslack export-workspace --drive-links download --drive-export-format pdf
+```
+
+What a run does, per space, once:
+
+1. Lists memberships (humans, bots, groups, invited members).
+2. Lists every message including thread replies and **deleted messages**
+   (Google returns their deletion time and reason; the last content the store
+   saw is kept alongside).
+3. Merges into the store: new messages are added, edited messages keep their
+   previous versions in `history`, deleted ones are marked, and messages that
+   vanish without a deletion marker are flagged `missingSince` rather than
+   dropped.
+4. Fetches **per-user reactions** for messages that have any.
+5. Resolves every person referenced (members, senders, mentions, reactors)
+   through the Directory API. Suspended, deleted, external and bot users get
+   placeholders so their messages are never lost.
+6. Indexes and downloads attachments: uploaded files via the Chat media API,
+   Drive attachments via the Drive API with md5 verification, Google-native
+   files (Docs/Sheets/Slides) exported as Office or PDF, attached GIFs, and
+   Drive/Docs/Sheets links found in message text (metadata by default). The
+   original Drive link and full Drive metadata (owner, created/modified time,
+   MIME type, size, md5) are recorded for every file.
+
+Original timestamps are kept at microsecond precision (`slackTs` is
+precomputed on every message).
+
+Users the service account cannot impersonate (suspended, deleted) are still
+covered when any active member of the conversation is selected. With
+`--admin-sweep` (default on, needs the `chat.admin.spaces.readonly` scope) the
+run also lists every named Space in the domain and reports those that no
+selected user can read in `unreachable-spaces.json`.
+
+Every run writes `runs/<runId>.json` with per-space counts and
+`logs/<runId>.log` with any warnings or errors. The command exits 0 on
+success, 2 if it completed with errors (re-run to retry), 1 if it failed.
+
+### Verify the export
+
+```bash
+googletoslack verify                # re-list every space from Google and compare, hash every file
+googletoslack verify --no-live      # offline: store consistency and file hashes only
+googletoslack verify --space general --json report.json
+```
+
+`verify` reports, per space, the stored active/deleted/missing counts against
+Google's live listing, plus attachment records that are pending, failed,
+missing on disk or whose hash changed. Exit code 1 means something needs
+attention.
 
 #### Export
 

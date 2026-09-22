@@ -9,7 +9,7 @@ Fork: https://github.com/Jacob-HRC/google-chat-to-slack (upstream markusjura).
 
 - [x] Setup: fork, clone, upstream remote, tests green, ARCHITECTURE.md.
 - [x] Phase 1: service-account auth (DWD), Directory user enumeration, user/OU filter, scope docs. Live verification blocked until delegation is granted.
-- [ ] Phase 2: per-user space export, dedupe, membership, suspended users, resume.
+- [x] Phase 2: `export-workspace` additive store with dedupe, memberships, deleted/edited history, per-user reactions, attachments + Drive links/metadata, placeholders, dry run, delta, resume; `verify --export`. Live run blocked on delegation.
 - [ ] Phase 3: Slack export-ZIP writer (channels/groups/users/dms/mpims + per-day files).
 - [ ] Phase 4: import runbook + `verify` command.
 - [ ] Phase 5: pilot with 2-3 users and one Space.
@@ -38,3 +38,11 @@ Fork: https://github.com/Jacob-HRC/google-chat-to-slack (upstream markusjura).
    new `users` command lists the resolved user set to verify delegation.
 5. README + ARCHITECTURE: exact DWD scopes and Admin console steps.
 6. Tests for `selectUsers()` and auth-mode resolution.
+
+## Phase 2 notes
+
+- New commands: `export-workspace`, `verify`. Legacy `export`/`transform`/`import` untouched.
+- Store layout and merge rules are documented in ARCHITECTURE.md ("Workspace export store").
+- Scopes now also include `chat.admin.spaces.readonly` and `chat.admin.memberships.readonly` (admin sweep). Jacob must grant the full list before the pilot.
+- Drive metadata/download calls share the Google Chat token bucket; add a Drive bucket if quota errors appear in the pilot.
+- Phase 3 should read this store, not export.json. Fields ready for Slack: `slackTs`, `threadName`/`threadReply`, `reactions[].user`, `attachmentKeys` → index records with `localPath` and Drive links, `users.json` for users.json/placeholders, `space.memberships` for dms/mpims membership.

@@ -74,3 +74,12 @@ export function findExistingImportDirectory(): string | undefined {
     return;
   }
 }
+
+/**
+ * Default directory for the additive workspace export store written by
+ * `export-workspace`. Kept apart from `export/`, which the legacy export
+ * command deletes on every run.
+ */
+export function getDefaultWorkspaceExportDirectory(): string {
+  return join(getDataDirectory(), 'workspace');
+}

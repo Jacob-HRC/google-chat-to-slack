@@ -95,6 +95,8 @@ describe('GOOGLE_SCOPES', () => {
       'https://www.googleapis.com/auth/chat.memberships.readonly',
       'https://www.googleapis.com/auth/drive.readonly',
       'https://www.googleapis.com/auth/admin.directory.user.readonly',
+      'https://www.googleapis.com/auth/chat.admin.spaces.readonly',
+      'https://www.googleapis.com/auth/chat.admin.memberships.readonly',
     ]);
   });
 });
