@@ -1,0 +1,47 @@
+# Slack app manifest for the Google Chat migration tooling.
+#
+# Create the app from this file rather than clicking through the scope list:
+#   https://api.slack.com/apps  →  Create New App  →  From a manifest
+#
+# Every scope here is read-only except files:write, chat:write and
+# channels:join, which the post-import file uploader needs. Nothing in this
+# app can delete a message, remove a member, or change anyone's profile.
+display_information:
+  name: Chat Migration
+  description: Reads the workspace for migration checks and attaches imported files.
+  background_color: "#2c2d30"
+
+features:
+  bot_user:
+    display_name: Chat Migration
+    always_online: false
+
+oauth_config:
+  scopes:
+    bot:
+      # --- Pre-import mapping report: who already exists here, so the import
+      # merges into them instead of creating duplicates.
+      - users:read
+      - users:read.email        # separate scope; without it every email is blank
+      - team:read
+
+      # --- Naming collisions: does a channel we are about to create exist?
+      - channels:read
+      - groups:read
+      - im:read
+      - mpim:read
+
+      # --- Verification after the import: count messages per conversation.
+      - channels:history
+      - groups:history
+
+      # --- Post-import file uploader: attach files to the messages that
+      # referenced them. The bot must be in a channel to post there.
+      - files:write
+      - chat:write
+      - channels:join
+
+settings:
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

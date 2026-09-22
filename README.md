@@ -167,26 +167,32 @@ conversations, and impersonates one Workspace admin to list users.
 
 #### Slack App Setup
 
-1. **Create Slack App**:
-   - Go to [Your Apps](https://api.slack.com/apps) → "Create New App" → "From scratch"
-   - Enter app name and select your workspace
+Create the app from the manifest in [`docs/slack-app-manifest.yaml`](docs/slack-app-manifest.yaml)
+rather than picking scopes by hand:
 
-2. **Configure Bot Token Scopes**:
-   - Go to "OAuth & Permissions" in sidebar
-   - Under `Scopes > Bot Token Scopes`, add these [scopes](https://api.slack.com/scopes):
-     - `channels:manage` (Create channels)
-     - `channels:read` (View channels)
-     - `chat:write` (Send messages)
-     - `files:write` (Upload files)
-     - `reactions:write` (Add emoji reactions)
+1. Go to [Your Apps](https://api.slack.com/apps), then **Create New App**, then
+   **From a manifest**. Choose the destination workspace.
+2. Paste the contents of `docs/slack-app-manifest.yaml`, review, and create.
+3. Click **Install to Workspace** and allow.
+4. Under **OAuth & Permissions**, copy the **Bot User OAuth Token**
+   (it starts with `xoxb-`).
 
-3. **Install App**:
-   - Click "Install to Workspace" at the top
-   - Review permissions and click "Allow"
+What each group of scopes is for:
 
-4. **Get Bot User OAuth Token**:
-   - Go to "OAuth & Permissions" in sidebar
-   - Copy the `OAuth Tokens > Bot User OAuth Token` for environment variable setup (starts with `xoxb-`)
+| Scopes | Why |
+| --- | --- |
+| `users:read`, `users:read.email`, `team:read` | The pre-import mapping report: which of your existing members each Google person maps to. `users:read.email` is a separate scope and without it every email comes back blank. |
+| `channels:read`, `groups:read`, `im:read`, `mpim:read` | Detect name collisions before the import creates a channel. |
+| `channels:history`, `groups:history` | Verify message counts per channel after the import. |
+| `files:write`, `chat:write`, `channels:join` | The post-import uploader, which attaches files to the messages that referenced them. |
+
+Nothing in this app can delete a message, remove a member or edit a profile.
+
+**Two limits worth knowing before you rely on it.** A bot only sees private
+channels and DMs it belongs to, so the mapping report covers public channels
+plus any private channel you invite it to. And no bot token can read other
+people's DMs, so imported DMs cannot be verified through the API; those get
+spot-checked by hand in the client instead.
 
 #### Environment Variables Setup
 
