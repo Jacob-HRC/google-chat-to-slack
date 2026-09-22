@@ -12,10 +12,10 @@
     "dev": "ts-node bin/googletoslack.ts",
     "prepublishOnly": "pnpm run build",
     "prepare": "husky",
-    "lint": "pnpm dlx ultracite lint",
-    "format": "pnpm dlx ultracite format",
+    "lint": "pnpm exec ultracite lint",
+    "format": "pnpm exec ultracite format",
     "typecheck": "tsc --noEmit",
-    "check": "pnpm dlx ultracite format && tsc --noEmit",
+    "check": "pnpm exec ultracite format && tsc --noEmit",
     "test": "vitest"
   },
   "dependencies": {
