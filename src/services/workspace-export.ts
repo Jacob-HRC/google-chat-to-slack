@@ -515,6 +515,23 @@ async function fetchReactions(
   return results.reduce((sum, n) => sum + n, 0);
 }
 
+function countAttachmentRecords(
+  ctx: RunContext,
+  messages: StoredMessage[],
+  names: string[]
+): number {
+  const wanted = new Set(names);
+  let count = 0;
+  for (const message of messages) {
+    if (wanted.has(message.name)) {
+      count += buildAttachmentRecords(message, {
+        driveLinks: ctx.options.driveLinks,
+      }).length;
+    }
+  }
+  return count;
+}
+
 function indexAttachments(
   ctx: RunContext,
   messages: StoredMessage[],
@@ -677,8 +694,11 @@ async function syncSpace(
 
   if (options.dryRun) {
     result.status = 'dry-run';
-    const wouldIndex = merge.diff.attachmentRefresh.length;
-    result.attachments.total = wouldIndex;
+    result.attachments.total = countAttachmentRecords(
+      ctx,
+      merge.messages,
+      merge.diff.attachmentRefresh
+    );
     await resolveUsersFor(ctx, space, merge.messages);
     result.durationMs = Date.now() - started;
     console.log(formatSpaceLine(space, result));
