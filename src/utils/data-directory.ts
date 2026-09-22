@@ -83,3 +83,8 @@ export function findExistingImportDirectory(): string | undefined {
 export function getDefaultWorkspaceExportDirectory(): string {
   return join(getDataDirectory(), 'workspace');
 }
+
+/** Default directory for Slack import archives built by `build-slack-archive`. */
+export function getDefaultSlackArchiveDirectory(): string {
+  return join(getDataDirectory(), 'slack-archive');
+}

@@ -1,5 +1,6 @@
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
+import { buildSlackArchiveCommand } from './commands/build-slack-archive';
 import { exportCommand } from './commands/export';
 import { exportWorkspaceCommand } from './commands/export-workspace';
 import { importCommand } from './commands/import';
@@ -22,6 +23,7 @@ export function getParser() {
   parser.command(usersCommand);
   parser.command(exportWorkspaceCommand);
   parser.command(verifyCommand);
+  parser.command(buildSlackArchiveCommand);
 
   return parser;
 }

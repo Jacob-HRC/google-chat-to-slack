@@ -300,6 +300,47 @@ affiliation), `bot`, or `unknown` (lookup error; retried next run). Chat's
 name sets and deleted counts; checks each attachment record's file exists and
 re-hashes it; counts unresolved people. `--no-live` runs offline.
 
+## Slack archive writer (Phase 3)
+
+`build-slack-archive` (`src/services/slack-archive/`) reads the workspace
+store and produces the archive Slack's importer expects. All transforms are
+pure functions over store records; the only I/O is reading the store and
+writing the ZIP (`yazl`).
+
+| Module | Responsibility |
+| --- | --- |
+| `ids.ts` | Deterministic Slack-shaped ids (`U…`, `C…`, `G…`, `D…`, `F…`) from Google ids via SHA-256, channel-name normalisation, `mpdm-a--b--c-1` names. |
+| `users.ts` | `users.json` rows: name + email only; deactivated for anyone not active in Google; overrides for placeholders. |
+| `conversations.ts` | Space → channel/group/dm/mpim decision, member lists (members ∪ senders), creator, created time. |
+| `text.ts` | Google formattedText → mrkdwn: `<users/id>` → `<@U…>`, `<url|label>` kept, `& < >` escaped outside tokens, bullets → `•`; reaction short names via `node-emoji` plus a table for newer emoji. |
+| `messages.ts` | Per conversation: include/omit (deleted policy, delta cut-offs), unique `ts` (+1µs on collision), threads (`thread_ts`, `reply_count`, `replies`, `parent_user_id`), `edited`, reactions, quoted messages, files (manifest or hosted), Drive links, day bucketing (UTC). |
+| `builder.ts` | Loads the store, collects referenced people, runs the above, fills `archive-manifest.json`. |
+| `writer.ts` | Stable entry order, ZIP + unpacked output, console report. |
+
+### Research notes: Slack import
+
+- Export layout and message fields: developers.google.com is not involved;
+  see slack.com/help/articles/220556107 ("How to read Slack data exports").
+  "Slack export files in JSON format do not contain any files from the
+  workspace. They include a series of file links."
+- Import behaviour (slack.com/help/articles/201748703 and the FAQ
+  360049597673): users are mapped by email with defaults "Merge users" for
+  matches, "Import as deactivated" for deactivated users without a match,
+  "Import just their messages" for active users without a match. "In order
+  for a DM to be imported, all the users in the DM must be imported."
+  "It is not possible to merge channels with an existing private channel."
+  "To be imported, both the user who shared the file and the conversation
+  where it was shared must be imported." Google Drive/Box app files "will
+  not be imported". Pinned messages import with channels; custom emoji must
+  exist in the destination first; "There isn't a maximum amount of data".
+- Whether Slack fetches `url_private` from a non-Slack host during import is
+  not documented. The writer therefore supports both `hosted` and `manifest`
+  file strategies; the pilot import decides.
+- Field usage cross-checked against Zulip's Slack import reader
+  (zerver/data_import/slack.py): `thread_ts`, `reply_count`, `replies`,
+  `parent_user_id`, `reactions[].name/users`, `files[].url_private`,
+  `edited`, `subtype` values, day files named `<conversation>/<YYYY-MM-DD>.json`.
+
 ## Research notes
 
 Findings from official documentation, kept here so the code does not rest on

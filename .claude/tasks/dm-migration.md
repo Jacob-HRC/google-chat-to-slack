@@ -10,7 +10,7 @@ Fork: https://github.com/Jacob-HRC/google-chat-to-slack (upstream markusjura).
 - [x] Setup: fork, clone, upstream remote, tests green, ARCHITECTURE.md.
 - [x] Phase 1: service-account auth (DWD), Directory user enumeration, user/OU filter, scope docs. Live verification blocked until delegation is granted.
 - [x] Phase 2: `export-workspace` additive store with dedupe, memberships, deleted/edited history, per-user reactions, attachments + Drive links/metadata, placeholders, dry run, delta, resume; `verify --export`. Live run blocked on delegation.
-- [ ] Phase 3: Slack export-ZIP writer (channels/groups/users/dms/mpims + per-day files).
+- [x] Phase 3: `build-slack-archive` writes the Slack import ZIP from the store; two file strategies; delta archives; tested on a fixture store and on pilot data. Import behaviour with real Slack still to be proven in Phase 5.
 - [ ] Phase 4: import runbook + `verify` command.
 - [ ] Phase 5: pilot with 2-3 users and one Space.
 
@@ -55,3 +55,66 @@ Fork: https://github.com/Jacob-HRC/google-chat-to-slack (upstream markusjura).
 - Membership counts match Google's `membershipCount`; the many single-member named Spaces are old project rooms where Jacob is the last member. Deleted accounts drop out of membership lists, so DM names now also use senders.
 - Four conversations exported for real (two Spaces with files, one group chat, one DM): 206 messages, 61 files hash-verified (uploads and a Docs export), per-user reactions captured, delta re-run is a no-op. Two Drive attachments reference a file Google says no longer exists; they stay `failed` and `verify` keeps reporting them.
 - `--refresh-users` only refreshes people referenced by the spaces in that run.
+
+## Constraint added 2026-09-22: Slack workspace already has members
+
+Jacob: "we have some users in slack already so we can't do anything that will
+overwrite them." Phase 3/4 must treat the Slack workspace as populated:
+- The ZIP writer emits users.json for mapping only; import must merge to
+  existing members by email, never create duplicates or touch profiles.
+- Phase 4 runbook must use the import's per-user mapping step and document
+  which option is safe; verify must confirm no existing member changed
+  (snapshot users.list before and after).
+- Dry-run of the Slack import: generate a mapping report (imported user →
+  existing member / new deactivated placeholder / skipped) before uploading.
+
+## Phase 3 plan: Slack export-ZIP writer (`build-slack-archive`)
+
+Reads the workspace store; never touches Google. Pure transforms in
+`src/services/slack-archive/*`, tested on a fixture store.
+
+Research (official docs, 2026-09-22):
+- Export layout: channels.json, groups.json (private), dms.json, mpims.json,
+  users.json, one `<conversation>/<YYYY-MM-DD>.json` per day.
+- Exports carry file *links* only. Importer imports files only when sharer and
+  conversation are both imported (Slack-to-Slack). Google Drive/Box app files
+  "will not be imported". DMs import only when every participant is imported;
+  "Import as deactivated" counts as imported. Cannot merge into existing
+  private channels; only public ones. Pinned messages import with channels.
+  Custom emoji must exist in the destination first.
+
+Design decisions:
+- IDs deterministic from Google ids (hash → Slack-shaped id) so repeated
+  builds and delta archives agree.
+- users.json: every referenced person. Existing Slack members are matched by
+  email at import time (their row carries email + name only, no profile extras
+  that could merge over an existing profile). Deleted/external/bot people:
+  `deleted: true` placeholders. `--user-overrides` JSON lets Jacob name a
+  placeholder (id → {name, email}).
+- Conversations: SPACE → private channel (default; `--space-visibility public`)
+  ; DIRECT_MESSAGE with 2 known people → dm; GROUP_CHAT 2 people → dm, 3-9 →
+  mpim, >9 → private channel; DM/group with only one known person → private
+  channel `archive-dm-<name>` (Slack DMs need two members); bot DMs skipped by
+  default.
+- Messages: ts = stored slackTs, made unique per conversation by +1µs on
+  collision. Threads from Google thread name: parent = first message of the
+  thread, replies get thread_ts/parent_user_id, parent gets reply_count,
+  reply_users, replies, latest_reply. Edits → `edited`. Deleted → policy
+  `--deleted tombstone|content|omit` (default tombstone). Reactions → per-user
+  `reactions[]` with node-emoji short names; custom emoji by name (reported).
+  Quoted messages rendered as `> quote` prefix. Mentions `<users/id>` →
+  `<@U…>`; unknown → plain @Name.
+- Text: Google formattedText markup is near-identical to mrkdwn (*_~`); escape
+  & < > outside tokens; `<url|text>` kept.
+- Files, two strategies, pilot decides: `--files hosted --files-base-url URL`
+  writes `files[]` with url_private pointing at a static host of
+  attachments/files (Slack fetches on import if it works); `--files manifest`
+  (default) omits files from messages and writes `files-to-upload.json`
+  (conversation, ts, thread_ts, local path, title) for a Phase 4 uploader that
+  posts them via files.uploadV2 into the imported thread. Drive link-only
+  records become `<webViewLink|name>` text; downloaded Drive copies get both.
+- Delta archives: `--first-seen-after <runId>` / `--messages-since <ISO>`
+  include only new messages, because a second import cannot edit or delete.
+- Output: ZIP (yazl) plus `--unpacked <dir>`, and `archive-manifest.json`
+  mapping Google ids → Slack ids/names/files for Phase 4 verify.
+- `--dry-run` prints the same report without writing.

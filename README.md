@@ -339,6 +339,60 @@ Google's live listing, plus attachment records that are pending, failed,
 missing on disk or whose hash changed. Exit code 1 means something needs
 attention.
 
+### Build the Slack import archive
+
+```bash
+googletoslack build-slack-archive --dry-run                 # report only
+googletoslack build-slack-archive                           # ZIP under data/slack-archive/
+googletoslack build-slack-archive --space general --unpacked ./check   # one Space plus a readable copy
+googletoslack build-slack-archive --user-overrides overrides.json      # name former staff placeholders
+```
+
+`build-slack-archive` reads the workspace store (never Google) and writes the
+archive format Slack's importer expects: `users.json`, `channels.json`,
+`groups.json`, `dms.json`, `mpims.json` and one JSON file per conversation per
+day, plus `archive-manifest.json` (Google id → Slack id mapping) and, by
+default, `files-to-upload.json`.
+
+How Google conversations map to Slack:
+
+| Google | Slack | Notes |
+| --- | --- | --- |
+| Named Space | private channel (`--space-visibility public` for public) | Slack can only merge into existing *public* channels. |
+| DM, or group chat with 2 people | direct message | Both people must be in `users.json`; former staff are deactivated placeholders. |
+| Group chat with 3 to 9 people | group DM (mpim) | Slack's group DM limit is 9. |
+| Group chat with more than 9 | private channel `group-…` | |
+| DM whose other person cannot be identified | private channel `archive-dm-…` | A Slack DM needs two members. |
+| DM with a Chat app or bot | skipped (`--include-bot-dms` to keep) | |
+
+Messages keep their original timestamps to the microsecond, thread structure,
+edits, per-user reactions (Slack short names), @mentions as real Slack mentions
+for people in `users.json`, and quoted messages as a quote block. Deleted
+messages follow `--deleted tombstone|content|omit`.
+
+**People.** Each row in `users.json` carries only a name and email so that the
+importer's mapping step can merge it into an existing member without touching
+their profile. Suspended, deleted, external and bot accounts are marked
+deactivated. `--user-overrides` takes a JSON object keyed by Google user id
+(`users/<id>`) with `name` and/or `email` for placeholders you can identify.
+
+**Files.** Slack exports carry file links, not bytes. Two strategies:
+
+- `--files manifest` (default): messages carry no files; `files-to-upload.json`
+  lists every downloaded file with its conversation, message timestamp and
+  thread, for the post-import uploader (Phase 4) to attach in place.
+- `--files hosted --files-base-url https://…`: messages carry `files[]` entries
+  pointing at a web host serving the store's `attachments/files` directory,
+  for Slack to fetch during import.
+
+Google Drive files that were only linked keep their link in the message text;
+downloaded Drive copies get both the copy and the original link.
+
+**Delta archives.** `--messages-since <RFC 3339>` or `--first-seen-after
+<export run id>` restrict the archive to new messages, for a second import into
+a workspace that already received the first one. A second import cannot apply
+edits or deletions.
+
 #### Export
 
 ```bash
