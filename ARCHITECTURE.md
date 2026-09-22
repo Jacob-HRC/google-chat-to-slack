@@ -455,6 +455,28 @@ guard earned its keep: `jenny@hrc.email` belongs to a different, active Jenny,
 and was correctly left alone. When the address spells an alternate name, that
 spelling is promoted, since it is the person's current one.
 
+### Deleted people on the Slack side
+
+Anyone whose Google account is gone is emitted with `deleted: true`, which the
+importer defaults to "Import as deactivated": the messages arrive attributed to
+a deactivated member that can be reactivated later. Slack does not bill
+deactivated accounts and does not remove their content.
+
+Two rules from Slack's docs shape the design:
+
+- "In order for a DM to be imported, all the users in the DM must be imported
+  to the destination workspace." Since mapping is by email, a person with no
+  address takes their DMs and shared files down with them. Measured against the
+  store at 36% export: 28 people had no address, between them appearing in 296
+  DMs and group DMs holding about 35,000 messages. `placeholderEmail()` mints
+  `chat-import-<id suffix>@<domain>` so those accounts can be created.
+- "Users cannot be imported as guests or merged into existing guest accounts",
+  so a person who is a guest in the destination needs handling by hand.
+
+Bots are skipped entirely by `needsSlackAccount()`: `buildOne()` writes their
+messages with the `bot_message` subtype and a `username`, so no account is
+referenced. That removed 12 unnecessary accounts.
+
 ### One person, one record
 
 `planAliases()` finds records that are the same human twice. A Vault import

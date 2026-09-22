@@ -38,6 +38,7 @@ type BuildArgs = {
   messagesSince?: string;
   teamId?: string;
   vaultPrefix?: string;
+  placeholderEmailDomain?: string;
 };
 
 async function toBuildOptions(argv: BuildArgs): Promise<BuildArchiveOptions> {
@@ -65,6 +66,7 @@ async function toBuildOptions(argv: BuildArgs): Promise<BuildArchiveOptions> {
     firstSeenAfterRun: argv.firstSeenAfter,
     messagesSince: argv.messagesSince,
     vaultPrefix: argv.vaultPrefix,
+    placeholderEmailDomain: argv.placeholderEmailDomain,
   };
 }
 
@@ -168,6 +170,11 @@ export const buildSlackArchiveCommand: CommandModule<object, BuildArgs> = {
       .option('messages-since', {
         describe:
           'Delta archive: only messages created after this RFC 3339 time.',
+        type: 'string',
+      })
+      .option('placeholder-email-domain', {
+        describe:
+          'Mint an address like chat-import-1234567890@<domain> for anyone with none. Slack only imports a DM when every participant is imported, so without this their conversations are dropped.',
         type: 'string',
       })
       .option('vault-prefix', {

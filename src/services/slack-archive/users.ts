@@ -21,6 +21,16 @@ export interface UserOverride {
 export interface BuildUsersOptions {
   teamId: string;
   overrides: Record<string, UserOverride>;
+  /**
+   * Domain used to mint an address for someone who has none.
+   *
+   * Slack maps people by email and will only import a DM when every
+   * participant is imported, so a person with no address silently takes their
+   * conversations down with them. A synthetic address on a domain you control
+   * keeps those conversations while making the account obviously a stand-in.
+   * Leave unset to emit no address at all.
+   */
+  placeholderEmailDomain?: string;
 }
 
 export interface BuiltUsers {
@@ -32,8 +42,11 @@ export interface BuiltUsers {
   byChatId: Map<string, ArchiveUserMapping>;
 }
 
+const LEADING_AT = /^@+/;
+const MULTI_SPACE = /\s+/g;
+
 function normalizeName(value: string): string {
-  return value.toLowerCase().replace(/\s+/g, ' ').trim();
+  return value.toLowerCase().replace(MULTI_SPACE, ' ').trim();
 }
 
 function handleFor(
@@ -58,6 +71,71 @@ export function isDeactivatedInSlack(user: StoredUser): boolean {
   return user.status !== 'active';
 }
 
+/**
+ * Bots never need a Slack account: their messages are written with the
+ * `bot_message` subtype and a `username`, not a user id.
+ */
+export function needsSlackAccount(user: StoredUser): boolean {
+  return user.status !== 'bot' && user.status !== 'group';
+}
+
+/** Obviously a stand-in, and stable across builds. */
+export function placeholderEmail(chatUserId: string, domain: string): string {
+  const suffix = chatUserId.replace('users/', '').slice(-10).toLowerCase();
+  return `chat-import-${suffix}@${domain.replace(LEADING_AT, '')}`;
+}
+
+interface BuiltRow {
+  user: SlackExportUser;
+  mapping: ArchiveUserMapping;
+}
+
+function buildRow(
+  person: StoredUser,
+  options: BuildUsersOptions,
+  used: Set<string>
+): BuiltRow {
+  const override = options.overrides[person.chatUserId] ?? {};
+  const name = override.name ?? displayNameOf(person, person.chatUserId);
+  const email =
+    override.email ??
+    person.email ??
+    (options.placeholderEmailDomain
+      ? placeholderEmail(person.chatUserId, options.placeholderEmailDomain)
+      : undefined);
+  const slackId = slackIdFor('U', person.chatUserId);
+  const deleted = isDeactivatedInSlack(person);
+  const handle = handleFor(email, name, person.chatUserId, used);
+
+  return {
+    user: {
+      id: slackId,
+      team_id: options.teamId,
+      name: handle,
+      deleted,
+      real_name: name,
+      profile: {
+        real_name: name,
+        real_name_normalized: normalizeName(name),
+        display_name: name,
+        display_name_normalized: normalizeName(name),
+        email,
+        team: options.teamId,
+      },
+      is_bot: false,
+      is_app_user: false,
+    },
+    mapping: {
+      slackId,
+      name,
+      email,
+      status: person.status,
+      placeholder: person.isPlaceholder || Boolean(override.name),
+      deleted,
+    },
+  };
+}
+
 /** Builds Slack user rows for the given people, in a stable order. */
 export function buildUsers(
   people: StoredUser[],
@@ -73,7 +151,7 @@ export function buildUsers(
   const merged: [string, string][] = [];
 
   for (const person of sorted) {
-    if (person.status === 'group') {
+    if (!needsSlackAccount(person)) {
       continue;
     }
     if (person.aliasOf) {
@@ -81,39 +159,9 @@ export function buildUsers(
       merged.push([person.chatUserId, person.aliasOf]);
       continue;
     }
-    const override = options.overrides[person.chatUserId] ?? {};
-    const name = override.name ?? displayNameOf(person, person.chatUserId);
-    const email = override.email ?? person.email;
-    const slackId = slackIdFor('U', person.chatUserId);
-    const deleted = isDeactivatedInSlack(person);
-    const handle = handleFor(email, name, person.chatUserId, used);
-    const isBot = person.status === 'bot';
-
-    users.push({
-      id: slackId,
-      team_id: options.teamId,
-      name: handle,
-      deleted,
-      real_name: name,
-      profile: {
-        real_name: name,
-        real_name_normalized: normalizeName(name),
-        display_name: name,
-        display_name_normalized: normalizeName(name),
-        email,
-        team: options.teamId,
-      },
-      is_bot: isBot,
-      is_app_user: false,
-    });
-    byChatId.set(person.chatUserId, {
-      slackId,
-      name,
-      email,
-      status: person.status,
-      placeholder: person.isPlaceholder || Boolean(override.name),
-      deleted,
-    });
+    const row = buildRow(person, options, used);
+    users.push(row.user);
+    byChatId.set(person.chatUserId, row.mapping);
   }
 
   // Point every merged record at the surviving person's Slack user.

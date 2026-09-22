@@ -18,7 +18,10 @@ import {
   escapeSlackText,
   reactionShortName,
 } from '../../services/slack-archive/text';
-import { buildUsers } from '../../services/slack-archive/users';
+import {
+  buildUsers,
+  placeholderEmail,
+} from '../../services/slack-archive/users';
 import {
   archiveEntries,
   writeArchive,
@@ -31,6 +34,7 @@ import {
   MEMBERSHIPS_GENERAL,
   SPACE_GENERAL,
   USER_ADMIN,
+  USER_BOT,
   USER_FORMER,
   USER_PASTOR,
 } from '../fixtures/chat-api';
@@ -155,7 +159,46 @@ describe('users', () => {
       name: 'fran',
       profile: { email: 'fran@old.example.com' },
     });
-    expect(users.find((u) => u.is_bot)?.deleted).toBe(true);
+    // Bots never need an account: their messages carry a username, not a user id.
+    expect(users.some((u) => u.is_bot)).toBe(false);
+    expect(byChatId.has(USER_BOT)).toBe(false);
+  });
+
+  it('mints a stand-in address only for people who have none', () => {
+    const { users, byChatId } = buildUsers(Object.values(FIXTURE_USERS), {
+      teamId: 'T1',
+      overrides: {},
+      placeholderEmailDomain: 'archive.example.com',
+    });
+    const former = users.find(
+      (u) => u.id === byChatId.get(USER_FORMER)?.slackId
+    );
+    expect(former?.profile.email).toBe(
+      'chat-import-0000000003@archive.example.com'
+    );
+    // Someone who already has an address keeps it.
+    const pastor = users.find(
+      (u) => u.id === byChatId.get(USER_PASTOR)?.slackId
+    );
+    expect(pastor?.profile.email).toBe('pastor@example.com');
+  });
+
+  it('leaves people without an address when no domain is given', () => {
+    const { users, byChatId } = buildUsers(Object.values(FIXTURE_USERS), {
+      teamId: 'T1',
+      overrides: {},
+    });
+    const former = users.find(
+      (u) => u.id === byChatId.get(USER_FORMER)?.slackId
+    );
+    expect(former?.profile.email).toBeUndefined();
+  });
+
+  it('builds the same stand-in address every time', () => {
+    expect(placeholderEmail('users/100000000000000000003', 'x.com')).toBe(
+      placeholderEmail('users/100000000000000000003', 'x.com')
+    );
+    expect(placeholderEmail('users/1', '@x.com')).toBe('chat-import-1@x.com');
   });
 });
 

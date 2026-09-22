@@ -56,6 +56,8 @@ export interface BuildArchiveOptions {
   messagesSince?: string;
   /** Prefix for channels recovered from Google Vault. Empty for none. */
   vaultPrefix?: string;
+  /** Domain for synthetic addresses; see BuildUsersOptions. */
+  placeholderEmailDomain?: string;
 }
 
 interface LoadedSpace {
@@ -217,6 +219,7 @@ export async function buildArchiveModel(
   const { users, byChatId } = buildUsers(people, {
     teamId: options.teamId,
     overrides: options.overrides,
+    placeholderEmailDomain: options.placeholderEmailDomain,
   });
 
   const model: ArchiveModel = {
