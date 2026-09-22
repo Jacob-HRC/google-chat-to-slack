@@ -145,3 +145,29 @@ Open:
   requested. The Vault console download works without it.
 - No MBOX parser exists. Deciding whether to write one depends on whether the
   96 spaces hold anything worth migrating, which the first export will show.
+
+## Paused 2026-09-22: full export stopped, Vault export running
+
+Full Chat export paused at Jacob's request after 2568 of 7194 conversations
+(65 GB, projected ~200 GB total). Stopped by killing the process; writes are
+atomic so nothing is partial. Spot-checked 400 store files, all parse;
+users.json 115 entries, attachments/index.json 10354 entries.
+
+Resume with (nothing is lost, it continues the same run):
+
+    pnpm start export-workspace --resume
+
+The manifest still records run 20260922T145007Z as "running", which is what
+--resume looks for. Spaces already marked complete in that run are skipped.
+
+Vault export of all 96 member-less Spaces started:
+- matter 76f80a78-5dcb-4ff7-b68c-1652fe110dcf ("Google Chat to Slack migration")
+- one export "chat-orphan-spaces", MBOX, 96 spaces (under the 500 limit)
+- detached poller logs status every 5 min to data/vault-exports/poll.log
+- earlier single-space probe lives in matter
+  94616089-048b-4a83-814e-c01538fe2fec and can be deleted once the big one
+  lands.
+
+Blocked on Jacob: add https://www.googleapis.com/auth/devstorage.read_only to
+the delegation entry, then `pnpm start vault download --matter 76f80a78-5dcb-4ff7-b68c-1652fe110dcf`.
+Until then the export can be downloaded by hand from the Vault console.
