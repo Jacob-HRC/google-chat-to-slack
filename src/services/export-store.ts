@@ -94,6 +94,16 @@ export function spaceIdFromName(name: string): string {
   return name.replace(SPACES_PREFIX_REGEX, '');
 }
 
+/**
+ * Identity shared by both sources. The Chat API duplicates the id in a message
+ * name (`abc.abc`) where Vault renders it bare (`abc`), so both collapse to the
+ * same key and a message can never be stored twice.
+ */
+export function messageIdentity(name: string): string {
+  const afterPrefix = name.split('/messages/').pop() ?? name;
+  return afterPrefix.split('.')[0];
+}
+
 export function messageIdFromName(name: string): string {
   const parts = name.split('/messages/');
   return parts[1] ?? name;
@@ -593,6 +603,40 @@ function mergeOne(
 }
 
 /**
+ * Merges one fetched message, or returns undefined when it is unusable or a
+ * repeat within the same listing.
+ */
+function mergeFetched(
+  raw: chat_v1.Schema$Message,
+  byIdentity: Map<string, StoredMessage>,
+  seen: Set<string>,
+  spaceId: string,
+  options: MergeOptions,
+  diff: MergeDiff
+): StoredMessage | undefined {
+  const name = raw.name ?? '';
+  if (!name) {
+    return;
+  }
+  const identity = messageIdentity(name);
+  if (seen.has(identity)) {
+    return;
+  }
+  seen.add(identity);
+  const previous = byIdentity.get(identity);
+  // A Vault record carries no threads, reactions or exact time, so the API
+  // version supersedes it outright instead of being treated as an edit.
+  const supersedesVault = previous?.source === 'vault';
+  return mergeOne(
+    supersedesVault ? undefined : previous,
+    raw,
+    spaceId,
+    options,
+    diff
+  );
+}
+
+/**
  * Merges a listing into the stored messages. Never drops a record: edits keep
  * prior versions in `history`, deletions keep the last content, and messages
  * that vanish without a deletion marker are flagged `missingSince`.
@@ -613,21 +657,21 @@ export function mergeMessages(
     reactionRefresh: [],
     attachmentRefresh: [],
   };
-  const byName = new Map(existing.map((m) => [m.name, m]));
+  // Keyed by shared identity so a Vault-sourced copy of a message is replaced
+  // by the Chat API copy rather than sitting beside it.
+  const byIdentity = new Map(existing.map((m) => [messageIdentity(m.name), m]));
   const seen = new Set<string>();
   const merged: StoredMessage[] = [];
 
   for (const raw of fetched) {
-    const name = raw.name ?? '';
-    if (!name || seen.has(name)) {
-      continue;
+    const fresh = mergeFetched(raw, byIdentity, seen, spaceId, options, diff);
+    if (fresh) {
+      merged.push(fresh);
     }
-    seen.add(name);
-    merged.push(mergeOne(byName.get(name), raw, spaceId, options, diff));
   }
 
   for (const message of existing) {
-    if (seen.has(message.name)) {
+    if (seen.has(messageIdentity(message.name))) {
       continue;
     }
     if (

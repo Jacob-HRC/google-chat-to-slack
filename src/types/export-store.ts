@@ -10,6 +10,16 @@ import type { UserSelection } from '../services/directory';
 
 export const STORE_VERSION = 1;
 
+/**
+ * Where a record came from. `chat-api` is the full-fidelity path. `vault`
+ * carries Spaces no account can reach any more; it has no threads, reactions,
+ * edits or sub-second timestamps, so it must never overwrite `chat-api` data.
+ */
+export type RecordSource = 'chat-api' | 'vault';
+
+/** Records written before sources were tracked are Chat API records. */
+export const DEFAULT_SOURCE: RecordSource = 'chat-api';
+
 export type RunStatus = 'running' | 'completed' | 'failed' | 'dry-run';
 
 export interface RunPointer {
@@ -46,6 +56,7 @@ export type UserSource =
 export interface StoredUser {
   /** Chat resource name, e.g. `users/1234567890`. */
   chatUserId: string;
+  source?: RecordSource;
   directoryId?: string;
   email?: string;
   fullName?: string;
@@ -81,6 +92,7 @@ export interface StoredMembership {
 
 export interface StoredSpace {
   spaceId: string;
+  source?: RecordSource;
   name: string;
   spaceType: string;
   displayName: string;
@@ -142,6 +154,7 @@ export interface MessageVersion {
 
 export interface StoredMessage {
   name: string;
+  source?: RecordSource;
   messageId: string;
   spaceId: string;
   createTime: string;
@@ -230,6 +243,7 @@ export interface DriveFileMetadata {
 
 export interface AttachmentRecord {
   key: string;
+  source?: RecordSource;
   kind: AttachmentKind;
   spaceId: string;
   messageName: string;

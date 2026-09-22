@@ -320,6 +320,51 @@ describe('mergeMessages', () => {
   });
 });
 
+describe('Chat API superseding Vault records', () => {
+  it('replaces a Vault-sourced message with the API copy instead of duplicating it', () => {
+    const vaultCopy = {
+      ...toStoredMessage(MSG_PLAIN, 'AAAAgeneral', 'vault-run', RUN_1.now),
+      // Vault renders the bare id and only second precision.
+      name: 'spaces/AAAAgeneral/messages/msg001',
+      messageId: 'msg001',
+      source: 'vault' as const,
+      createTime: '2025-01-31T12:49:46.000000Z',
+      slackTs: '1738327786.000000',
+    };
+    const { messages, diff } = mergeMessages(
+      [vaultCopy],
+      [MSG_PLAIN],
+      'AAAAgeneral',
+      RUN_1
+    );
+    expect(messages).toHaveLength(1);
+    expect(diff).toMatchObject({ added: 1, updated: 0 });
+    const [message] = messages;
+    expect(message.source).toBeUndefined();
+    expect(message.name).toBe(MSG_PLAIN.name);
+    expect(message.createTime).toBe('2025-01-31T12:49:46.637839Z');
+    expect(message.history).toEqual([]);
+  });
+
+  it('leaves a Vault message alone when the API never returns it', () => {
+    const vaultOnly = {
+      ...toStoredMessage(MSG_PLAIN, 'AAAAgeneral', 'vault-run', RUN_1.now),
+      name: 'spaces/AAAAgeneral/messages/vaultonly',
+      messageId: 'vaultonly',
+      source: 'vault' as const,
+    };
+    const { messages, diff } = mergeMessages(
+      [vaultOnly],
+      [MSG_PLAIN],
+      'AAAAgeneral',
+      { ...RUN_1, fetchedIsComplete: false }
+    );
+    expect(messages).toHaveLength(2);
+    expect(diff.missing).toBe(0);
+    expect(messages.some((m) => m.source === 'vault')).toBe(true);
+  });
+});
+
 describe('mergeSpace and memberships', () => {
   it('classifies members and accumulates readers across runs', () => {
     const first = mergeSpace(undefined, {

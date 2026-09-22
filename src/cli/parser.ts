@@ -4,6 +4,7 @@ import { buildSlackArchiveCommand } from './commands/build-slack-archive';
 import { exportCommand } from './commands/export';
 import { exportWorkspaceCommand } from './commands/export-workspace';
 import { importCommand } from './commands/import';
+import { importVaultCommand } from './commands/import-vault';
 import { loginCommand } from './commands/login';
 import { logoutCommand } from './commands/logout';
 import { migrateCommand } from './commands/migrate';
@@ -25,6 +26,7 @@ export function getParser() {
   parser.command(exportWorkspaceCommand);
   parser.command(verifyCommand);
   parser.command(vaultCommand);
+  parser.command(importVaultCommand);
   parser.command(buildSlackArchiveCommand);
 
   return parser;

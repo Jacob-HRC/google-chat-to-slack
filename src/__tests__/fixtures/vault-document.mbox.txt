@@ -1,0 +1,355 @@
+From AAAAA6HZ1qY-MBI-FLAT:2022-09-25T20:23:36.246289@xxx Mon Sep 26 03:23:36 2022
+Received: by 0.0.0.0 with HTTP; Mon Sep 26 08:23:36 PDT 2022
+Date: Mon, 26 Sep 2022 08:23:36 -0700 (PDT)
+From: ken@hrc.email
+To: ken@hrc.email, jacob@hrc.email
+Message-ID: <AAAAA6HZ1qY-MBI-FLAT:2022-09-25T20:23:36.246289>
+Subject: AAAAA6HZ1qY-MBI-FLAT:2022-09-25T20:23:36.246289
+MIME-Version: 1.0
+Content-Type: multipart/mixed; 
+	boundary="----=_Part_3744_654940740.1790104366605"
+
+------=_Part_3744_654940740.1790104366605
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+<html><head><meta content=3D'text/html; charset=3DUTF-8'/></head><div data-=
+id=3D"WIWizLRE3d8" style=3D"font-family:Roboto,Arial,sans-serif;line-height=
+:1.25rem;font-size:.875rem;letter-spacing:.0142857143em;font-weight:400;pad=
+ding-left:0;margin:0"><div style=3D"padding-left:0;margin-bottom:40px"><div=
+><span style=3D"font-weight:700">ken@hrc.email=C2=A0</span>September 26, 20=
+22 at 3:23:36=E2=80=AFPM UTC</div><div style=3D"font-family:Roboto,Arial,sa=
+ns-serif;line-height:1.25rem;font-size:.875rem;letter-spacing:.0142857143em=
+;font-weight:400;font-size:14px;font-weight:500;line-height:20px;overflow:h=
+idden;white-space:pre-wrap;width:100%"><span style=3D"display:none">*</span=
+><b>Via User(Chris Davis)</b><span style=3D"display:none">*</span>
+I used this to bypass 365 login on computers.<a href=3D"https://docs.jamf.c=
+om/technical-articles/Disabling_Jamf_Connect_on_Locked_Computers.html" targ=
+et=3D"_blank" rel=3D"noopener nofollow noreferrer">JAMF Connect Bypass</a><=
+/div><div style=3D"margin:0;padding-left:40px"><div><a href=3D"https://docs=
+.jamf.com/technical-articles/Disabling_Jamf_Connect_on_Locked_Computers.htm=
+l">https://docs.jamf.com/technical-articles/Disabling_Jamf_Connect_on_Locke=
+d_Computers.html</a></div></div></div></div><div data-id=3D"3N0UqpB6zio" st=
+yle=3D"font-family:Roboto,Arial,sans-serif;line-height:1.25rem;font-size:.8=
+75rem;letter-spacing:.0142857143em;font-weight:400;padding-left:0;margin:0"=
+><div style=3D"padding-left:0;margin-bottom:40px"><div><span style=3D"font-=
+weight:700">ken@hrc.email=C2=A0</span>September 26, 2022 at 3:27:17=E2=80=
+=AFPM UTC</div><div style=3D"font-family:Roboto,Arial,sans-serif;line-heigh=
+t:1.25rem;font-size:.875rem;letter-spacing:.0142857143em;font-weight:400;fo=
+nt-size:14px;font-weight:500;line-height:20px;overflow:hidden;white-space:p=
+re-wrap;width:100%"><span style=3D"display:none">*</span><b>Via User(Chris =
+Davis)</b><span style=3D"display:none">*</span>
+This is an organization that helps out other Mac Admins. They have a Slack =
+that you can request access to. Ask questions and real through what others =
+are working on.  <a href=3D"https://www.macadmins.org/" target=3D"_blank" r=
+el=3D"noopener nofollow noreferrer">Mac Admins Website</a></div><div style=
+=3D"margin:0;padding-left:40px"><div><a href=3D"https://www.macadmins.org/"=
+>https://www.macadmins.org/</a></div></div></div></div><div data-id=3D"oej1=
+m2KfPGM" style=3D"font-family:Roboto,Arial,sans-serif;line-height:1.25rem;f=
+ont-size:.875rem;letter-spacing:.0142857143em;font-weight:400;padding-left:=
+0;margin:0"><div style=3D"padding-left:0;margin-bottom:40px"><div><span sty=
+le=3D"font-weight:700">ken@hrc.email=C2=A0</span>September 26, 2022 at 3:29=
+:18=E2=80=AFPM UTC</div><div style=3D"font-family:Roboto,Arial,sans-serif;l=
+ine-height:1.25rem;font-size:.875rem;letter-spacing:.0142857143em;font-weig=
+ht:400;font-size:14px;font-weight:500;line-height:20px;overflow:hidden;whit=
+e-space:pre-wrap;width:100%"><span style=3D"display:none">*</span><b>Via Us=
+er(Chris Davis)</b><span style=3D"display:none">*</span>
+The Mac Admins also created this site that has many different softwares ava=
+ilable to help manage things. This is where I got the tool MailtoOutlook 2.=
+0 so we can push Outlook as default to Macs. It is already added in JAMF I =
+have not deployed it yet though. I did test it on the Test Computer and it =
+worked. <a href=3D"https://macadmins.software/tools/" target=3D"_blank" rel=
+=3D"noopener nofollow noreferrer">Mac Admins Software Page</a></div><div st=
+yle=3D"margin:0;padding-left:40px"><div><a href=3D"https://macadmins.softwa=
+re/tools/">https://macadmins.software/tools/</a></div></div></div></div><di=
+v data-id=3D"KaAzGiS2FJI" style=3D"font-family:Roboto,Arial,sans-serif;line=
+-height:1.25rem;font-size:.875rem;letter-spacing:.0142857143em;font-weight:=
+400;padding-left:0;margin:0"><div style=3D"padding-left:0;margin-bottom:40p=
+x"><div><span style=3D"font-weight:700">ken@hrc.email=C2=A0</span>September=
+ 26, 2022 at 5:26:04=E2=80=AFPM UTC</div><div style=3D"font-family:Roboto,A=
+rial,sans-serif;line-height:1.25rem;font-size:.875rem;letter-spacing:.01428=
+57143em;font-weight:400;font-size:14px;font-weight:500;line-height:20px;ove=
+rflow:hidden;white-space:pre-wrap;width:100%"><a href=3D"https://highridgec=
+hurch.protect.jamfcloud.com/" target=3D"_blank" rel=3D"noopener nofollow no=
+referrer">https://highridgechurch.protect.jamfcloud.com/</a></div><div styl=
+e=3D"margin:0;padding-left:40px"><div><a href=3D"https://highridgechurch.pr=
+otect.jamfcloud.com/">https://highridgechurch.protect.jamfcloud.com/</a></d=
+iv></div></div></div><div data-id=3D"YQdREAHKZkg" style=3D"font-family:Robo=
+to,Arial,sans-serif;line-height:1.25rem;font-size:.875rem;letter-spacing:.0=
+142857143em;font-weight:400;padding-left:0;margin:0"><div style=3D"padding-=
+left:0;margin-bottom:40px"><div><span style=3D"font-weight:700">ken@hrc.ema=
+il=C2=A0</span>September 26, 2022 at 5:46:07=E2=80=AFPM UTC</div><div style=
+=3D"font-family:Roboto,Arial,sans-serif;line-height:1.25rem;font-size:.875r=
+em;letter-spacing:.0142857143em;font-weight:400;font-size:14px;font-weight:=
+500;line-height:20px;overflow:hidden;white-space:pre-wrap;width:100%"><span=
+ style=3D"display:none">*</span><b>Via User(Chris Davis)</b><span style=3D"=
+display:none">*</span>
+<a href=3D"http://merakipartners.com" target=3D"_blank" rel=3D"noopener nof=
+ollow noreferrer">merakipartners.com</a></div><div style=3D"margin:0;paddin=
+g-left:40px"><div><a href=3D"http://merakipartners.com">http://merakipartne=
+rs.com</a></div></div></div></div><div data-id=3D"09tm9Rgyg1c" style=3D"fon=
+t-family:Roboto,Arial,sans-serif;line-height:1.25rem;font-size:.875rem;lett=
+er-spacing:.0142857143em;font-weight:400;padding-left:0;margin:0"><div styl=
+e=3D"padding-left:0;margin-bottom:40px"><div><span style=3D"font-weight:700=
+">ken@hrc.email=C2=A0</span>September 26, 2022 at 5:46:16=E2=80=AFPM UTC</d=
+iv><div style=3D"font-family:Roboto,Arial,sans-serif;line-height:1.25rem;fo=
+nt-size:.875rem;letter-spacing:.0142857143em;font-weight:400;font-size:14px=
+;font-weight:500;line-height:20px;overflow:hidden;white-space:pre-wrap;widt=
+h:100%"><span style=3D"display:none">*</span><b>Via User(Chris Davis)</b><s=
+pan style=3D"display:none">*</span>
+CMNA</div></div></div><div data-id=3D"QCMeV93AodA" style=3D"font-family:Rob=
+oto,Arial,sans-serif;line-height:1.25rem;font-size:.875rem;letter-spacing:.=
+0142857143em;font-weight:400;padding-left:0;margin:0"><div style=3D"padding=
+-left:0;margin-bottom:40px"><div><span style=3D"font-weight:700">ken@hrc.em=
+ail=C2=A0</span>September 26, 2022 at 7:33:26=E2=80=AFPM UTC</div><div styl=
+e=3D"font-family:Roboto,Arial,sans-serif;line-height:1.25rem;font-size:.875=
+rem;letter-spacing:.0142857143em;font-weight:400;font-size:14px;font-weight=
+:500;line-height:20px;overflow:hidden;white-space:pre-wrap;width:100%"><spa=
+n style=3D"display:none">*</span><b>Via User(Chris Davis)</b><span style=3D=
+"display:none">*</span>
+<a href=3D"https://service.malwarebytes.com/hc/en-us/articles/4413803362323=
+-Remotely-uninstall-managed-clients-with-Malwarebytes-Management-Console" t=
+arget=3D"_blank" rel=3D"noopener nofollow noreferrer">https://service.malwa=
+rebytes.com/hc/en-us/articles/4413803362323-Remotely-uninstall-managed-clie=
+nts-with-Malwarebytes-Management-Console</a></div><div style=3D"margin:0;pa=
+dding-left:40px"><div><a href=3D"https://service.malwarebytes.com/hc/en-us/=
+articles/4413803362323-Remotely-uninstall-managed-clients-with-Malwarebytes=
+-Management-Console">https://service.malwarebytes.com/hc/en-us/articles/441=
+3803362323-Remotely-uninstall-managed-clients-with-Malwarebytes-Management-=
+Console</a></div></div></div></div><div data-id=3D"tNFC8UTDGyI" style=3D"fo=
+nt-family:Roboto,Arial,sans-serif;line-height:1.25rem;font-size:.875rem;let=
+ter-spacing:.0142857143em;font-weight:400;padding-left:0;margin:0"><div sty=
+le=3D"padding-left:0;margin-bottom:40px"><div><span style=3D"font-weight:70=
+0">jacob@hrc.email=C2=A0</span>September 26, 2022 at 9:17:54=E2=80=AFPM UTC=
+</div><div style=3D"font-family:Roboto,Arial,sans-serif;line-height:1.25rem=
+;font-size:.875rem;letter-spacing:.0142857143em;font-weight:400;font-size:1=
+4px;font-weight:500;line-height:20px;overflow:hidden;white-space:pre-wrap;w=
+idth:100%">
+</div></div></div><div data-id=3D"O3C-jaVJ82o" style=3D"font-family:Roboto,=
+Arial,sans-serif;line-height:1.25rem;font-size:.875rem;letter-spacing:.0142=
+857143em;font-weight:400;padding-left:0;margin:0"><div style=3D"padding-lef=
+t:0;margin-bottom:40px"><div><span style=3D"font-weight:700">ken@hrc.email=
+=C2=A0</span>September 27, 2022 at 7:16:37=E2=80=AFPM UTC</div><div style=
+=3D"font-family:Roboto,Arial,sans-serif;line-height:1.25rem;font-size:.875r=
+em;letter-spacing:.0142857143em;font-weight:400;font-size:14px;font-weight:=
+500;line-height:20px;overflow:hidden;white-space:pre-wrap;width:100%"><span=
+ style=3D"display:none">*</span><b>Via User(Chris Davis)</b><span style=3D"=
+display:none">*</span>
+<a href=3D"https://shottr.cc/" target=3D"_blank" rel=3D"noopener nofollow n=
+oreferrer">https://shottr.cc/</a></div><div style=3D"margin:0;padding-left:=
+40px"><div><a href=3D"https://shottr.cc/">https://shottr.cc/</a></div></div=
+></div></div><div data-id=3D"UBfT7EJW8Vo" style=3D"font-family:Roboto,Arial=
+,sans-serif;line-height:1.25rem;font-size:.875rem;letter-spacing:.014285714=
+3em;font-weight:400;padding-left:0;margin:0"><div style=3D"padding-left:0;m=
+argin-bottom:40px"><div><span style=3D"font-weight:700">ken@hrc.email=C2=A0=
+</span>September 27, 2022 at 9:17:16=E2=80=AFPM UTC</div><div style=3D"font=
+-family:Roboto,Arial,sans-serif;line-height:1.25rem;font-size:.875rem;lette=
+r-spacing:.0142857143em;font-weight:400;font-size:14px;font-weight:500;line=
+-height:20px;overflow:hidden;white-space:pre-wrap;width:100%"><a href=3D"ht=
+tps://highridgechurch.protect.jamfcloud.com/" target=3D"_blank" rel=3D"noop=
+ener nofollow noreferrer">https://highridgechurch.protect.jamfcloud.com/</a=
+></div><div style=3D"margin:0;padding-left:40px"><div><a href=3D"https://hi=
+ghridgechurch.protect.jamfcloud.com/">https://highridgechurch.protect.jamfc=
+loud.com/</a></div></div></div></div><div data-id=3D"poAZNSnBXFE" style=3D"=
+font-family:Roboto,Arial,sans-serif;line-height:1.25rem;font-size:.875rem;l=
+etter-spacing:.0142857143em;font-weight:400;padding-left:0;margin:0"><div s=
+tyle=3D"padding-left:0;margin-bottom:40px"><div><span style=3D"font-weight:=
+700">ken@hrc.email=C2=A0</span>September 28, 2022 at 1:51:31=E2=80=AFAM UTC=
+</div><div style=3D"font-family:Roboto,Arial,sans-serif;line-height:1.25rem=
+;font-size:.875rem;letter-spacing:.0142857143em;font-weight:400;font-size:1=
+4px;font-weight:500;line-height:20px;overflow:hidden;white-space:pre-wrap;w=
+idth:100%">
+</div><div style=3D"margin:0;padding-left:40px"><div>You now have access to=
+ Google for Nonprofits</div></div></div></div><div data-id=3D"g0XCuG8qCrs" =
+style=3D"font-family:Roboto,Arial,sans-serif;line-height:1.25rem;font-size:=
+.875rem;letter-spacing:.0142857143em;font-weight:400;padding-left:0;margin:=
+0"><div style=3D"padding-left:0;margin-bottom:40px"><div><span style=3D"fon=
+t-weight:700">ken@hrc.email=C2=A0</span>September 28, 2022 at 1:52:14=E2=80=
+=AFAM UTC</div><div style=3D"font-family:Roboto,Arial,sans-serif;line-heigh=
+t:1.25rem;font-size:.875rem;letter-spacing:.0142857143em;font-weight:400;fo=
+nt-size:14px;font-weight:500;line-height:20px;overflow:hidden;white-space:p=
+re-wrap;width:100%">
+</div><div style=3D"margin:0;padding-left:40px"><div>You now have access to=
+ Google for Nonprofits</div></div></div></div><div data-id=3D"0cRT0OKQ6Ug" =
+style=3D"font-family:Roboto,Arial,sans-serif;line-height:1.25rem;font-size:=
+.875rem;letter-spacing:.0142857143em;font-weight:400;padding-left:0;margin:=
+0"><div style=3D"padding-left:0;margin-bottom:40px"><div><span style=3D"fon=
+t-weight:700">ken@hrc.email=C2=A0</span>September 28, 2022 at 1:53:11=E2=80=
+=AFAM UTC</div><div style=3D"font-family:Roboto,Arial,sans-serif;line-heigh=
+t:1.25rem;font-size:.875rem;letter-spacing:.0142857143em;font-weight:400;fo=
+nt-size:14px;font-weight:500;line-height:20px;overflow:hidden;white-space:p=
+re-wrap;width:100%">
+</div><div style=3D"margin:0;padding-left:40px"><div>Your chat transcript f=
+or Case #41304064</div></div></div></div><div data-id=3D"PxRHREHLpiQ" style=
+=3D"font-family:Roboto,Arial,sans-serif;line-height:1.25rem;font-size:.875r=
+em;letter-spacing:.0142857143em;font-weight:400;padding-left:0;margin:0"><d=
+iv style=3D"padding-left:0;margin-bottom:40px"><div><span style=3D"font-wei=
+ght:700">ken@hrc.email=C2=A0</span>September 28, 2022 at 1:53:58=E2=80=AFAM=
+ UTC</div><div style=3D"font-family:Roboto,Arial,sans-serif;line-height:1.2=
+5rem;font-size:.875rem;letter-spacing:.0142857143em;font-weight:400;font-si=
+ze:14px;font-weight:500;line-height:20px;overflow:hidden;white-space:pre-wr=
+ap;width:100%">&lt;mailto:ken@hrc.email|ken@hrc.email&gt;</div></div></div>=
+<div data-id=3D"vHaaN_fjT-Y" style=3D"font-family:Roboto,Arial,sans-serif;l=
+ine-height:1.25rem;font-size:.875rem;letter-spacing:.0142857143em;font-weig=
+ht:400;padding-left:0;margin:0"><div style=3D"padding-left:0;margin-bottom:=
+40px"><div><span style=3D"font-weight:700">ken@hrc.email=C2=A0</span>Septem=
+ber 28, 2022 at 1:54:27=E2=80=AFAM UTC</div><div style=3D"font-family:Robot=
+o,Arial,sans-serif;line-height:1.25rem;font-size:.875rem;letter-spacing:.01=
+42857143em;font-weight:400;font-size:14px;font-weight:500;line-height:20px;=
+overflow:hidden;white-space:pre-wrap;width:100%">hyj6zgm.hvc7kqg9UBP</div><=
+/div></div><div data-id=3D"GoewkEFswa4" style=3D"font-family:Roboto,Arial,s=
+ans-serif;line-height:1.25rem;font-size:.875rem;letter-spacing:.0142857143e=
+m;font-weight:400;padding-left:0;margin:0"><div style=3D"padding-left:0;mar=
+gin-bottom:40px"><div><span style=3D"font-weight:700">ken@hrc.email=C2=A0</=
+span>September 28, 2022 at 1:01:10=E2=80=AFPM UTC</div><div style=3D"font-f=
+amily:Roboto,Arial,sans-serif;line-height:1.25rem;font-size:.875rem;letter-=
+spacing:.0142857143em;font-weight:400;font-size:14px;font-weight:500;line-h=
+eight:20px;overflow:hidden;white-space:pre-wrap;width:100%">@Chris Davis
+</div><div style=3D"margin:0;padding-left:40px"><div>SCR-20220928-b4d.png</=
+div></div></div></div><div data-id=3D"x7AN_KhtKxA" style=3D"font-family:Rob=
+oto,Arial,sans-serif;line-height:1.25rem;font-size:.875rem;letter-spacing:.=
+0142857143em;font-weight:400;padding-left:0;margin:0"><div style=3D"padding=
+-left:0;margin-bottom:40px"><div><span style=3D"font-weight:700">ken@hrc.em=
+ail=C2=A0</span>September 28, 2022 at 2:55:00=E2=80=AFPM UTC</div><div styl=
+e=3D"font-family:Roboto,Arial,sans-serif;line-height:1.25rem;font-size:.875=
+rem;letter-spacing:.0142857143em;font-weight:400;font-size:14px;font-weight=
+:500;line-height:20px;overflow:hidden;white-space:pre-wrap;width:100%">8_.u=
+z6zaPom-</div></div></div><div data-id=3D"x5UTqYvjH4c" style=3D"font-family=
+:Roboto,Arial,sans-serif;line-height:1.25rem;font-size:.875rem;letter-spaci=
+ng:.0142857143em;font-weight:400;padding-left:0;margin:0"><div style=3D"pad=
+ding-left:0;margin-bottom:40px"><div><span style=3D"font-weight:700">ken@hr=
+c.email=C2=A0</span>September 28, 2022 at 2:55:14=E2=80=AFPM UTC</div><div =
+style=3D"font-family:Roboto,Arial,sans-serif;line-height:1.25rem;font-size:=
+.875rem;letter-spacing:.0142857143em;font-weight:400;font-size:14px;font-we=
+ight:500;line-height:20px;overflow:hidden;white-space:pre-wrap;width:100%">=
+<a href=3D"https://account.ui.com/login?innerRedirect=3D%2F" target=3D"_bla=
+nk" rel=3D"noopener nofollow noreferrer">https://account.ui.com/login?inner=
+Redirect=3D%2F</a></div><div style=3D"margin:0;padding-left:40px"><div><a h=
+ref=3D"https://account.ui.com/login?innerRedirect=3D%2F">https://account.ui=
+.com/login?innerRedirect=3D%2F</a></div></div></div></div><div data-id=3D"e=
+-kwL4B-Sps" style=3D"font-family:Roboto,Arial,sans-serif;line-height:1.25re=
+m;font-size:.875rem;letter-spacing:.0142857143em;font-weight:400;padding-le=
+ft:0;margin:0"><div style=3D"padding-left:0;margin-bottom:40px"><div><span =
+style=3D"font-weight:700">ken@hrc.email=C2=A0</span>September 28, 2022 at 2=
+:58:51=E2=80=AFPM UTC</div><div style=3D"font-family:Roboto,Arial,sans-seri=
+f;line-height:1.25rem;font-size:.875rem;letter-spacing:.0142857143em;font-w=
+eight:400;font-size:14px;font-weight:500;line-height:20px;overflow:hidden;w=
+hite-space:pre-wrap;width:100%"><a href=3D"https://account.ui.com/login?red=
+irect=3Dhttps%3A%2F%2Funifi.ui.com%2Fdashboard" target=3D"_blank" rel=3D"no=
+opener nofollow noreferrer">https://account.ui.com/login?redirect=3Dhttps%3=
+A%2F%2Funifi.ui.com%2Fdashboard</a></div><div style=3D"margin:0;padding-lef=
+t:40px"><div><a href=3D"https://account.ui.com/login?redirect=3Dhttps%3A%2F=
+%2Funifi.ui.com%2Fdashboard">https://account.ui.com/login?redirect=3Dhttps%=
+3A%2F%2Funifi.ui.com%2Fdashboard</a></div></div></div></div><div data-id=3D=
+"e7CtfijW7kw" style=3D"font-family:Roboto,Arial,sans-serif;line-height:1.25=
+rem;font-size:.875rem;letter-spacing:.0142857143em;font-weight:400;padding-=
+left:0;margin:0"><div style=3D"padding-left:0;margin-bottom:40px"><div><spa=
+n style=3D"font-weight:700">ken@hrc.email=C2=A0</span>September 28, 2022 at=
+ 8:55:51=E2=80=AFPM UTC</div><div style=3D"font-family:Roboto,Arial,sans-se=
+rif;line-height:1.25rem;font-size:.875rem;letter-spacing:.0142857143em;font=
+-weight:400;font-size:14px;font-weight:500;line-height:20px;overflow:hidden=
+;white-space:pre-wrap;width:100%"><span style=3D"display:none">*</span><b>V=
+ia User(Chris Davis)</b><span style=3D"display:none">*</span>
+Via CNAME (preferred):
+
+<ul style=3D"padding-left:30px"><li><span style=3D"display:none">- </span>L=
+abel/Host: 41403072
+</li><li><span style=3D"display:none">- </span>Destination/Target: <a href=
+=3D"http://google.com" target=3D"_blank" rel=3D"noopener nofollow noreferre=
+r">google.com</a>
+</li><li><span style=3D"display:none">- </span>Time to live (TTL): 3600 sec=
+onds / 60 minutes / 1 Hour</li></ul></div><div style=3D"margin:0;padding-le=
+ft:40px"><div><a href=3D"http://google.com">http://google.com</a></div></di=
+v></div></div><div data-id=3D"_joGt3S8-YQ" style=3D"font-family:Roboto,Aria=
+l,sans-serif;line-height:1.25rem;font-size:.875rem;letter-spacing:.01428571=
+43em;font-weight:400;padding-left:0;margin:0"><div style=3D"padding-left:0;=
+margin-bottom:40px"><div><span style=3D"font-weight:700">ken@hrc.email=C2=
+=A0</span>September 29, 2022 at 7:46:23=E2=80=AFPM UTC</div><div style=3D"f=
+ont-family:Roboto,Arial,sans-serif;line-height:1.25rem;font-size:.875rem;le=
+tter-spacing:.0142857143em;font-weight:400;font-size:14px;font-weight:500;l=
+ine-height:20px;overflow:hidden;white-space:pre-wrap;width:100%"><span styl=
+e=3D"display:none">*</span><b>Via User(Chris Davis)</b><span style=3D"displ=
+ay:none">*</span>
+
+</div><div style=3D"margin:0;padding-left:40px"><div>IT_Tasks</div></div></=
+div></div><div data-id=3D"eZ80cfihCWU" style=3D"font-family:Roboto,Arial,sa=
+ns-serif;line-height:1.25rem;font-size:.875rem;letter-spacing:.0142857143em=
+;font-weight:400;padding-left:0;margin:0"><div style=3D"padding-left:0;marg=
+in-bottom:40px"><div><span style=3D"font-weight:700">ken@hrc.email=C2=A0</s=
+pan>September 30, 2022 at 2:06:36=E2=80=AFPM UTC</div><div style=3D"font-fa=
+mily:Roboto,Arial,sans-serif;line-height:1.25rem;font-size:.875rem;letter-s=
+pacing:.0142857143em;font-weight:400;font-size:14px;font-weight:500;line-he=
+ight:20px;overflow:hidden;white-space:pre-wrap;width:100%">@Chris Davis Loo=
+king at Marc's computer Zoom, Chrome, and OneDrive did not install? Thought=
+s?</div></div></div><div data-id=3D"bRtxo9ep74g" style=3D"font-family:Robot=
+o,Arial,sans-serif;line-height:1.25rem;font-size:.875rem;letter-spacing:.01=
+42857143em;font-weight:400;padding-left:0;margin:0"><div style=3D"padding-l=
+eft:0;margin-bottom:40px"><div><span style=3D"font-weight:700">ken@hrc.emai=
+l=C2=A0</span>September 30, 2022 at 2:19:36=E2=80=AFPM UTC</div><div style=
+=3D"font-family:Roboto,Arial,sans-serif;line-height:1.25rem;font-size:.875r=
+em;letter-spacing:.0142857143em;font-weight:400;font-size:14px;font-weight:=
+500;line-height:20px;overflow:hidden;white-space:pre-wrap;width:100%"><span=
+ style=3D"display:none">*</span><b>Via User(Chris Davis)</b><span style=3D"=
+display:none">*</span>
+@Ken Kicker yeah I was having issues and rebooted several times and could n=
+ot get it to load. Had to leave but was planning to figure out how to manua=
+lly push them this morning. The dock also wasn't pushing either. </div></di=
+v></div><div data-id=3D"z-Yarg5fbCk" style=3D"font-family:Roboto,Arial,sans=
+-serif;line-height:1.25rem;font-size:.875rem;letter-spacing:.0142857143em;f=
+ont-weight:400;padding-left:0;margin:0"><div style=3D"padding-left:40px;mar=
+gin-bottom:40px"><div style=3D"color:blue;font-weight:700"><span>2 Replies<=
+/span></div><div><span style=3D"font-weight:700">ken@hrc.email=C2=A0</span>=
+September 30, 2022 at 2:22:12=E2=80=AFPM UTC</div><div style=3D"font-family=
+:Roboto,Arial,sans-serif;line-height:1.25rem;font-size:.875rem;letter-spaci=
+ng:.0142857143em;font-weight:400;font-size:14px;font-weight:500;line-height=
+:20px;overflow:hidden;white-space:pre-wrap;width:100%">Okay thanks!</div></=
+div></div><div data-id=3D"Q_h1b0vJauU" style=3D"font-family:Roboto,Arial,sa=
+ns-serif;line-height:1.25rem;font-size:.875rem;letter-spacing:.0142857143em=
+;font-weight:400;padding-left:0;margin:0"><div style=3D"padding-left:40px;m=
+argin-bottom:40px"><div><span style=3D"font-weight:700">ken@hrc.email=C2=A0=
+</span>September 30, 2022 at 2:22:35=E2=80=AFPM UTC</div><div style=3D"font=
+-family:Roboto,Arial,sans-serif;line-height:1.25rem;font-size:.875rem;lette=
+r-spacing:.0142857143em;font-weight:400;font-size:14px;font-weight:500;line=
+-height:20px;overflow:hidden;white-space:pre-wrap;width:100%">@Chris Davis =
+did you hear back from Chad on the copier company?</div></div></div><div da=
+ta-id=3D"qy6OFvTxVLU" style=3D"font-family:Roboto,Arial,sans-serif;line-hei=
+ght:1.25rem;font-size:.875rem;letter-spacing:.0142857143em;font-weight:400;=
+padding-left:0;margin:0"><div style=3D"padding-left:0;margin-bottom:40px"><=
+div><span style=3D"font-weight:700">ken@hrc.email=C2=A0</span>September 30,=
+ 2022 at 2:25:26=E2=80=AFPM UTC</div><div style=3D"font-family:Roboto,Arial=
+,sans-serif;line-height:1.25rem;font-size:.875rem;letter-spacing:.014285714=
+3em;font-weight:400;font-size:14px;font-weight:500;line-height:20px;overflo=
+w:hidden;white-space:pre-wrap;width:100%"><span style=3D"display:none">*</s=
+pan><b>Via User(Chris Davis)</b><span style=3D"display:none">*</span>
+@Ken Kicker he said it is a company that only works in Denton. Didn't get t=
+he name. I can make some calls to other clients though. </div></div></div><=
+div data-id=3D"FvB-u6tNm50" style=3D"font-family:Roboto,Arial,sans-serif;li=
+ne-height:1.25rem;font-size:.875rem;letter-spacing:.0142857143em;font-weigh=
+t:400;padding-left:0;margin:0"><div style=3D"padding-left:40px;margin-botto=
+m:40px"><div style=3D"color:blue;font-weight:700"><span>1 Reply</span></div=
+><div><span style=3D"font-weight:700">ken@hrc.email=C2=A0</span>October 3, =
+2022 at 12:46:09=E2=80=AFPM UTC</div><div style=3D"font-family:Roboto,Arial=
+,sans-serif;line-height:1.25rem;font-size:.875rem;letter-spacing:.014285714=
+3em;font-weight:400;font-size:14px;font-weight:500;line-height:20px;overflo=
+w:hidden;white-space:pre-wrap;width:100%">@Chris Davis Pause on this, the c=
+urrent provider may have as solution, crazy how that happens with you start=
+ to threaten </div></div></div><div data-id=3D"XUE7dXwxH6g" style=3D"font-f=
+amily:Roboto,Arial,sans-serif;line-height:1.25rem;font-size:.875rem;letter-=
+spacing:.0142857143em;font-weight:400;padding-left:0;margin:0"><div style=
+=3D"padding-left:0;margin-bottom:40px"><div><span style=3D"font-weight:700"=
+>jacob@hrc.email=C2=A0</span>September 30, 2022 at 6:34:16=E2=80=AFPM UTC</=
+div><div style=3D"font-family:Roboto,Arial,sans-serif;line-height:1.25rem;f=
+ont-size:.875rem;letter-spacing:.0142857143em;font-weight:400;font-size:14p=
+x;font-weight:500;line-height:20px;overflow:hidden;white-space:pre-wrap;wid=
+th:100%"><a href=3D"https://github.com/ninxsoft/Mist" target=3D"_blank" rel=
+=3D"noopener nofollow noreferrer">https://github.com/ninxsoft/Mist</a>
+Pretty cool tool to get Mac OS installers</div><div style=3D"margin:0;paddi=
+ng-left:40px"><div><a href=3D"https://github.com/ninxsoft/Mist">https://git=
+hub.com/ninxsoft/Mist</a></div></div></div></div></html>
+------=_Part_3744_654940740.1790104366605
+Content-Type: application/octet-stream; 
+	name="You now have access to Google for Nonprofits"
+------=_Part_3744_654940740.1790104366605
+Content-Type: application/octet-stream; 
+	name="You now have access to Google for Nonprofits"
+------=_Part_3744_654940740.1790104366605--
