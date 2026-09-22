@@ -134,6 +134,33 @@ describe('resolveChatUsers', () => {
     expect(users[USER_FORMER].firstSeenRun).toBe('run0');
   });
 
+  it('drops a generic full name stored by an earlier run', async () => {
+    const existing: Record<string, StoredUser> = {
+      [USER_FORMER]: {
+        chatUserId: USER_FORMER,
+        fullName: 'Deleted User',
+        status: 'deleted',
+        isPlaceholder: true,
+        placeholderName: 'Former user 000003',
+        sources: ['sender'],
+        firstSeenRun: 'run0',
+      },
+    };
+    const users = await resolveChatUsers(
+      refs([USER_FORMER, { type: 'HUMAN', displayName: 'Deleted User' }]),
+      existing,
+      lookup,
+      options
+    );
+    expect(users[USER_FORMER].fullName).toBeUndefined();
+    expect(displayNameOf(users[USER_FORMER], USER_FORMER)).toBe(
+      'Former user 000003'
+    );
+    expect(displayNameOf(existing[USER_FORMER], USER_FORMER)).toBe(
+      'Former user 000003'
+    );
+  });
+
   it('labels bots and external users without a directory lookup', async () => {
     const users = await resolveChatUsers(
       refs(

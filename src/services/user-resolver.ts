@@ -20,6 +20,13 @@ export function isGenericDisplayName(name: string | undefined): boolean {
   return GENERIC_DISPLAY_NAMES.has((name ?? '').trim().toLowerCase());
 }
 
+/** First candidate that is a real name rather than a Google placeholder. */
+function firstRealName(
+  ...candidates: Array<string | undefined>
+): string | undefined {
+  return candidates.find((name) => !isGenericDisplayName(name));
+}
+
 export interface ChatUserRef {
   chatUserId: string;
   type?: string;
@@ -136,9 +143,7 @@ function asPlaceholder(
     chatUserId: ref.chatUserId,
     directoryId: existing?.directoryId ?? directoryIdOf(ref.chatUserId),
     email: existing?.email,
-    fullName:
-      existing?.fullName ??
-      (isGenericDisplayName(ref.displayName) ? undefined : ref.displayName),
+    fullName: firstRealName(existing?.fullName, ref.displayName),
     chatDisplayName: ref.displayName ?? existing?.chatDisplayName,
     status,
     isPlaceholder: true,
@@ -166,7 +171,9 @@ function needsLookup(
   }
   if (
     existing.isPlaceholder &&
-    isGenericDisplayName(existing.placeholderName)
+    (isGenericDisplayName(existing.placeholderName) ||
+      (existing.fullName !== undefined &&
+        isGenericDisplayName(existing.fullName)))
   ) {
     return true;
   }
@@ -237,10 +244,11 @@ export function displayNameOf(
     return placeholderName(chatUserId, 'unknown');
   }
   return (
-    user.fullName ??
-    user.chatDisplayName ??
-    user.placeholderName ??
-    user.email ??
-    placeholderName(chatUserId, user.status)
+    firstRealName(
+      user.fullName,
+      user.chatDisplayName,
+      user.placeholderName,
+      user.email
+    ) ?? placeholderName(chatUserId, user.status)
   );
 }
