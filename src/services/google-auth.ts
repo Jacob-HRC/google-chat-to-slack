@@ -42,6 +42,15 @@ export const VAULT_SCOPES = [
   'https://www.googleapis.com/auth/ediscovery',
 ] as const;
 
+/**
+ * Cloud Storage read scope, needed only to download finished Vault exports.
+ * Separate again so a missing grant blocks downloads and nothing else; the
+ * same files can always be downloaded by hand from the Vault console.
+ */
+export const VAULT_DOWNLOAD_SCOPES = [
+  'https://www.googleapis.com/auth/devstorage.read_only',
+] as const;
+
 export const GOOGLE_AUTH_MODES = {
   OAUTH: 'oauth',
   SERVICE_ACCOUNT: 'service-account',

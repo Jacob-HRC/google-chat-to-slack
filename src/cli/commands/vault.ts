@@ -12,6 +12,7 @@ import {
   countChatMessages,
   createChatExports,
   describeVaultError,
+  downloadExportFiles,
   ensureMatter,
   listChatExports,
   listMatters,
@@ -37,6 +38,7 @@ type VaultArgs = {
   format?: string;
   subject?: string;
   json?: string;
+  dest?: string;
   yes?: boolean;
 };
 
@@ -229,6 +231,34 @@ async function runStatus(argv: VaultArgs, subject?: string): Promise<void> {
   }
 }
 
+async function runDownload(argv: VaultArgs, subject?: string): Promise<void> {
+  if (!argv.matter) {
+    throw new Error('--matter <matterId> is required for download.');
+  }
+  const destDir = path.resolve(argv.dest ?? 'data/vault-exports');
+  const exports = (await listChatExports(argv.matter, subject)).filter(
+    (e) => e.status === 'COMPLETED'
+  );
+  if (exports.length === 0) {
+    console.log('No completed exports to download yet.');
+    return;
+  }
+  for (const item of exports) {
+    console.log(`Downloading ${item.name}...`);
+    // biome-ignore lint/nursery/noAwaitInLoop: one export at a time.
+    const files = await downloadExportFiles(
+      item,
+      path.join(destDir, item.name),
+      subject
+    );
+    for (const file of files) {
+      console.log(
+        `   ${file.localPath} (${(file.bytes / 1024 / 1024).toFixed(1)} MB)`
+      );
+    }
+  }
+}
+
 async function runMatters(subject?: string): Promise<void> {
   const matters = await listMatters(subject);
   console.log(`Open Vault matters: ${matters.length}`);
@@ -240,14 +270,14 @@ async function runMatters(subject?: string): Promise<void> {
 export const vaultCommand: CommandModule<object, VaultArgs> = {
   command: 'vault <action>',
   describe:
-    'Use Google Vault to reach Chat spaces that have no remaining members (probe | export | status | matters).',
+    'Use Google Vault to reach Chat spaces that have no remaining members (probe | export | status | download | matters).',
   builder: (yargs) =>
     yargs
       .positional('action', {
         describe:
-          'probe: count what Vault holds. export: start exports. status: check progress. matters: list matters.',
+          'probe: check what Vault can reach. export: start exports. status: check progress. download: fetch completed exports. matters: list matters.',
         type: 'string',
-        choices: ['probe', 'export', 'status', 'matters'],
+        choices: ['probe', 'export', 'status', 'download', 'matters'],
         demandOption: true,
       })
       .option('input', {
@@ -284,6 +314,11 @@ export const vaultCommand: CommandModule<object, VaultArgs> = {
       .option('json', {
         describe: 'Write the probe report to this JSON file.',
         type: 'string',
+      })
+      .option('dest', {
+        describe: 'Directory for downloaded exports.',
+        type: 'string',
+        default: 'data/vault-exports',
       })
       .example(
         '$0 vault probe',
@@ -328,6 +363,9 @@ export const vaultCommand: CommandModule<object, VaultArgs> = {
           break;
         case 'status':
           await runStatus(argv, subject);
+          break;
+        case 'download':
+          await runDownload(argv, subject);
           break;
         default:
           await runMatters(subject);

@@ -10,9 +10,19 @@
  * Vault is used read-mostly: it creates a matter (a container, reversible) and
  * then counts or exports. It never writes to Chat.
  */
+
+import { createWriteStream } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
+import path from 'node:path';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { google, type vault_v1 } from 'googleapis';
 import { withGoogleChatRateLimit } from '../utils/rate-limiting';
-import { getScopedAuthClient, VAULT_SCOPES } from './google-auth';
+import {
+  getScopedAuthClient,
+  VAULT_DOWNLOAD_SCOPES,
+  VAULT_SCOPES,
+} from './google-auth';
 
 /** Vault accepts at most 500 Chat space ids per request. */
 export const MAX_ROOM_IDS_PER_REQUEST = 500;
@@ -313,4 +323,62 @@ export async function listChatExports(
     pageToken = res.data.nextPageToken ?? undefined;
   } while (pageToken);
   return exports;
+}
+
+export interface DownloadedExportFile {
+  objectName: string;
+  localPath: string;
+  bytes: number;
+}
+
+/**
+ * Downloads a completed export's Cloud Storage objects.
+ *
+ * Vault writes exports to a bucket it owns and hands back object names. The
+ * bucket cannot be listed, so objects are fetched by name. This needs the
+ * Cloud Storage read scope in addition to the Vault scope.
+ */
+export async function downloadExportFiles(
+  exportSummary: VaultExportSummary,
+  destDir: string,
+  subject?: string
+): Promise<DownloadedExportFile[]> {
+  if (!exportSummary.bucketName) {
+    throw new Error(
+      `Export ${exportSummary.name} has no Cloud Storage files yet (status ${exportSummary.status ?? 'unknown'}).`
+    );
+  }
+  const client = await getScopedAuthClient(VAULT_DOWNLOAD_SCOPES, subject);
+  const { token } = await client.getAccessToken();
+  await mkdir(destDir, { recursive: true });
+
+  const downloaded: DownloadedExportFile[] = [];
+  for (const objectName of exportSummary.objectNames) {
+    const url = `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(
+      exportSummary.bucketName
+    )}/o/${encodeURIComponent(objectName)}?alt=media`;
+    // biome-ignore lint/nursery/noAwaitInLoop: one object at a time bounds memory.
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!(res.ok && res.body)) {
+      const detail = await res.text().catch(() => '');
+      if (res.status === 403) {
+        throw new Error(
+          `Cloud Storage refused the download (403). Add https://www.googleapis.com/auth/devstorage.read_only to the service account's domain-wide delegation entry, or download the export from the Vault console instead. ${detail.slice(0, 200)}`
+        );
+      }
+      throw new Error(
+        `Download failed for ${objectName}: HTTP ${res.status} ${res.statusText} ${detail.slice(0, 200)}`
+      );
+    }
+    const localPath = path.join(destDir, path.basename(objectName));
+    const body = Readable.fromWeb(
+      res.body as unknown as import('node:stream/web').ReadableStream
+    );
+    await pipeline(body, createWriteStream(localPath));
+    const size = Number(res.headers.get('content-length') ?? 0);
+    downloaded.push({ objectName, localPath, bytes: size });
+  }
+  return downloaded;
 }
