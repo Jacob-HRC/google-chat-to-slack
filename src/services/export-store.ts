@@ -335,6 +335,20 @@ export function mergeSpace(
  * Hash of the parts of a message that can change after creation. Reactions
  * summaries are included so a new reaction triggers a per-user refetch.
  */
+/** Attachment fields that identify content; download URLs are signed and rotate. */
+function stableAttachment(
+  attachment: chat_v1.Schema$Attachment
+): Record<string, unknown> {
+  return {
+    name: attachment.name ?? '',
+    contentName: attachment.contentName ?? '',
+    contentType: attachment.contentType ?? '',
+    source: attachment.source ?? '',
+    attachmentDataRef: attachment.attachmentDataRef ?? null,
+    driveDataRef: attachment.driveDataRef ?? null,
+  };
+}
+
 export function messageContentHash(raw: chat_v1.Schema$Message): string {
   const subset = {
     text: raw.text ?? '',
@@ -342,7 +356,7 @@ export function messageContentHash(raw: chat_v1.Schema$Message): string {
     lastUpdateTime: raw.lastUpdateTime ?? '',
     deleteTime: raw.deleteTime ?? '',
     deletionMetadata: raw.deletionMetadata ?? null,
-    attachment: raw.attachment ?? [],
+    attachment: (raw.attachment ?? []).map(stableAttachment),
     attachedGifs: raw.attachedGifs ?? [],
     annotations: raw.annotations ?? [],
     emojiReactionSummaries: raw.emojiReactionSummaries ?? [],
@@ -529,7 +543,11 @@ function mergeOne(
   }
 
   const hash = messageContentHash(fetched);
-  if (fetchedDeleted || hash === existing.contentHash) {
+  // Recompute the stored version's hash too, so a change in the hashing
+  // rules (not in the message) never shows up as an edit.
+  const isSameContent =
+    hash === existing.contentHash || hash === messageContentHash(existing.raw);
+  if (fetchedDeleted || isSameContent) {
     diff.unchanged += 1;
     const needsReactions =
       hasReactions(fetched) && existing.reactionsFetchedRun === undefined;
@@ -538,6 +556,7 @@ function mergeOne(
     }
     return {
       ...existing,
+      contentHash: existing.isDeleted ? existing.contentHash : hash,
       lastSeenRun: options.runId,
       lastSeenAt: options.now,
       missingSince: undefined,

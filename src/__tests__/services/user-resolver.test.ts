@@ -113,6 +113,27 @@ describe('resolveChatUsers', () => {
     expect(users[USER_FORMER].chatDisplayName).toBe('Deleted User');
   });
 
+  it('re-resolves stored placeholders that still carry a generic name', async () => {
+    const existing: Record<string, StoredUser> = {
+      [USER_FORMER]: {
+        chatUserId: USER_FORMER,
+        status: 'deleted',
+        isPlaceholder: true,
+        placeholderName: 'Deleted User',
+        sources: ['sender'],
+        firstSeenRun: 'run0',
+      },
+    };
+    const users = await resolveChatUsers(
+      refs([USER_FORMER, { type: 'HUMAN', displayName: 'Deleted User' }]),
+      existing,
+      lookup,
+      options
+    );
+    expect(users[USER_FORMER].placeholderName).toBe('Former user 000003');
+    expect(users[USER_FORMER].firstSeenRun).toBe('run0');
+  });
+
   it('labels bots and external users without a directory lookup', async () => {
     const users = await resolveChatUsers(
       refs(

@@ -108,6 +108,29 @@ describe('messageContentHash', () => {
   });
 });
 
+describe('messageContentHash attachments', () => {
+  it('ignores rotating signed download URLs but notices a different file', () => {
+    const base = messageContentHash(MSG_WITH_ATTACHMENTS);
+    const rotated = {
+      ...MSG_WITH_ATTACHMENTS,
+      attachment: MSG_WITH_ATTACHMENTS.attachment?.map((a) => ({
+        ...a,
+        downloadUri: 'https://chat.google.com/api/get_attachment_url?x=NEW',
+        thumbnailUri:
+          'https://chat.google.com/api/get_attachment_url?x=NEW&t=1',
+      })),
+    };
+    expect(messageContentHash(rotated)).toBe(base);
+    const replaced = {
+      ...MSG_WITH_ATTACHMENTS,
+      attachment: MSG_WITH_ATTACHMENTS.attachment?.map((a, i) =>
+        i === 0 ? { ...a, attachmentDataRef: { resourceName: 'OTHER' } } : a
+      ),
+    };
+    expect(messageContentHash(replaced)).not.toBe(base);
+  });
+});
+
 describe('mergeMessages', () => {
   it('adds new messages sorted by createTime and flags reaction/attachment work', () => {
     const { messages, diff } = mergeMessages(
@@ -172,6 +195,20 @@ describe('mergeMessages', () => {
       RUN_2
     );
     expect(second.diff.reactionRefresh).toEqual([MSG_REPLY_WITH_REACTION.name]);
+  });
+
+  it('treats a stale stored hash as unchanged when the content is identical', () => {
+    const first = mergeMessages([], [MSG_PLAIN], 'AAAAgeneral', RUN_1);
+    first.messages[0].contentHash = 'hash-from-an-older-algorithm';
+    const second = mergeMessages(
+      first.messages,
+      [MSG_PLAIN],
+      'AAAAgeneral',
+      RUN_2
+    );
+    expect(second.diff).toMatchObject({ updated: 0, unchanged: 1 });
+    expect(second.messages[0].history).toHaveLength(0);
+    expect(second.messages[0].contentHash).toBe(messageContentHash(MSG_PLAIN));
   });
 
   it('keeps the previous version in history when a message is edited', () => {

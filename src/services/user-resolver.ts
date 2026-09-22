@@ -164,6 +164,12 @@ function needsLookup(
   if (!existing || options.refresh) {
     return true;
   }
+  if (
+    existing.isPlaceholder &&
+    isGenericDisplayName(existing.placeholderName)
+  ) {
+    return true;
+  }
   return existing.status === 'unknown';
 }
 
