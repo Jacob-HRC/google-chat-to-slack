@@ -88,3 +88,8 @@ export function getDefaultWorkspaceExportDirectory(): string {
 export function getDefaultSlackArchiveDirectory(): string {
   return join(getDataDirectory(), 'slack-archive');
 }
+
+/** Default path of the Slack member snapshot written by `slack-members`. */
+export function getDefaultSlackMembersFile(): string {
+  return join(getDataDirectory(), 'slack', 'members.json');
+}

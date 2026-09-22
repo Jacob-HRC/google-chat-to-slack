@@ -111,13 +111,71 @@ export async function writeArchive(
   };
 }
 
+/** Conversations the importer will drop because a participant cannot be mapped. */
+export function conversationsAtRisk(
+  model: ArchiveModel
+): { name: string; kind: string; messages: number; unmapped: string[] }[] {
+  const unmappable = new Map<string, string>();
+  for (const mapping of Object.values(model.manifest.users)) {
+    if (mapping.importAction === 'no-email' || mapping.guest) {
+      unmappable.set(mapping.slackId, mapping.name);
+    }
+  }
+  const atRisk: ReturnType<typeof conversationsAtRisk> = [];
+  for (const c of model.conversations) {
+    if (c.plan.kind !== 'dm' && c.plan.kind !== 'mpim') {
+      continue;
+    }
+    const unmapped = c.plan.members
+      .filter((id) => unmappable.has(id))
+      .map((id) => unmappable.get(id) ?? id);
+    if (unmapped.length > 0) {
+      atRisk.push({
+        name: c.plan.name,
+        kind: c.plan.kind,
+        messages: c.messageCount,
+        unmapped,
+      });
+    }
+  }
+  return atRisk.sort((a, b) => b.messages - a.messages);
+}
+
+function printMappingRisks(model: ArchiveModel): void {
+  const m = model.manifest;
+  if (!m.options.slackMembersFetchedAt) {
+    console.log(
+      '   ⚠️  Built without a Slack member snapshot; run `slack-members` and pass --slack-members to see who merges.'
+    );
+  }
+  if (m.totals.guests > 0) {
+    console.log(
+      `   ⚠️  ${m.totals.guests} person(s) match a guest account, which Slack will not merge into; handle by hand.`
+    );
+  }
+  const atRisk = conversationsAtRisk(model);
+  if (atRisk.length === 0) {
+    return;
+  }
+  const messages = atRisk.reduce((sum, c) => sum + c.messages, 0);
+  console.log(
+    `   ⚠️  ${atRisk.length} DM/group DM(s) holding ${messages} messages include someone with no address and will be dropped by the importer. Use --placeholder-email-domain. Largest:`
+  );
+  for (const c of atRisk.slice(0, 5)) {
+    console.log(
+      `     ${c.name.padEnd(40)} ${String(c.messages).padStart(6)} msgs · ${c.unmapped.join(', ')}`
+    );
+  }
+}
+
 export function printArchiveReport(model: ArchiveModel, dryRun: boolean): void {
   const m = model.manifest;
   const t = m.totals;
   console.log(`\n📦 ${dryRun ? '[Dry run] ' : ''}Slack archive`);
   console.log(
-    `   People: ${t.users} (${t.placeholders} deactivated placeholders for former staff, bots or external users)`
+    `   People: ${t.users} · ${t.merge} merge into existing members · ${t.deactivated} created deactivated · ${t.noEmail} with no address · ${t.placeholders} placeholders`
   );
+  printMappingRisks(model);
   console.log(
     `   Conversations: ${t.channels} public channels · ${t.groups} private channels · ${t.dms} DMs · ${t.mpims} group DMs · ${t.skippedConversations} skipped`
   );

@@ -158,6 +158,12 @@ export interface ArchiveUserMapping {
   status: string;
   placeholder: boolean;
   deleted: boolean;
+  /** What the importer's mapping screen should default to; see slack-members.ts. */
+  importAction: 'merge' | 'deactivated' | 'no-email';
+  /** Existing member this person merges into. */
+  slackMemberId?: string;
+  /** Existing member is a guest, which Slack refuses to merge into. */
+  guest: boolean;
 }
 
 export interface ArchiveConversationMapping {
@@ -186,6 +192,8 @@ export interface ArchiveManifest {
     firstSeenAfterRun?: string;
     messagesSince?: string;
     spaceFilter: string[];
+    /** When the Slack member snapshot used for mapping was fetched. */
+    slackMembersFetchedAt?: string;
   };
   users: Record<string, ArchiveUserMapping>;
   conversations: Record<string, ArchiveConversationMapping>;
@@ -199,6 +207,14 @@ export interface ArchiveManifest {
   totals: {
     users: number;
     placeholders: number;
+    /** People whose email matches an existing member. */
+    merge: number;
+    /** People to be created as deactivated accounts. */
+    deactivated: number;
+    /** People with no address at all; their DMs will not import. */
+    noEmail: number;
+    /** Merges that target a guest account and need handling by hand. */
+    guests: number;
     channels: number;
     groups: number;
     dms: number;

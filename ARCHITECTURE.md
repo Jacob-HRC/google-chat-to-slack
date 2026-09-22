@@ -21,6 +21,7 @@ not merged yet.
 | `transform` | `src/cli/commands/transform.ts` | Converts `export/export.json` into `import/import.json`. |
 | `import` | `src/cli/commands/import.ts` | Posts `import/import.json` into Slack via the Web API. |
 | `migrate` | `src/cli/commands/migrate.ts` | Runs all three stages back to back. |
+| `slack-members [--output path] [--json]` | `src/cli/commands/slack-members.ts` | Read-only snapshot of who exists in the destination Slack workspace, for the archive's merge-versus-deactivated decision. |
 
 All commands are yargs `CommandModule`s registered in `src/cli/parser.ts` and
 launched from `bin/googletoslack.ts`.
@@ -455,23 +456,36 @@ guard earned its keep: `jenny@hrc.email` belongs to a different, active Jenny,
 and was correctly left alone. When the address spells an alternate name, that
 spelling is promoted, since it is the person's current one.
 
-### Deleted people on the Slack side
+### Who merges, who is created deactivated
 
-Anyone whose Google account is gone is emitted with `deleted: true`, which the
-importer defaults to "Import as deactivated": the messages arrive attributed to
-a deactivated member that can be reactivated later. Slack does not bill
-deactivated accounts and does not remove their content.
+`slack-members` snapshots the destination workspace (`users.list` and
+`team.info`) to `data/slack/members.json`. `buildUsers()` takes that snapshot,
+indexed by lower-cased email, and `decideImportAction()` gives every person one
+of three outcomes, recorded per person in the manifest as `importAction`:
+
+- `merge`: an existing member has the email. The row is emitted with that
+  member's `deleted` state, so an active member stays active.
+- `deactivated`: nobody has the email. The row is emitted with
+  `deleted: true`, which Slack's mapping screen defaults to "Import as
+  deactivated": the account is created, DMs import, nothing is billed, and
+  no invitation or email goes out. This is deliberate. The migration cannot be
+  announced before it is done, so active Google users must not arrive as
+  active Slack accounts. Without a snapshot everyone gets this outcome.
+- `no-email`: nothing to map by. The row is deactivated too, but Slack will
+  only offer "Import just their messages", which drops every DM they are in.
 
 Two rules from Slack's docs shape the design:
 
 - "In order for a DM to be imported, all the users in the DM must be imported
   to the destination workspace." Since mapping is by email, a person with no
   address takes their DMs and shared files down with them. Measured against the
-  store at 36% export: 28 people had no address, between them appearing in 296
-  DMs and group DMs holding about 35,000 messages. `placeholderEmail()` mints
+  store at 43% export: 27 people had no address, between them appearing in 331
+  DMs and group DMs holding about 12,000 messages. `placeholderEmail()` mints
   `chat-import-<id suffix>@<domain>` so those accounts can be created.
+  `conversationsAtRisk()` lists the affected conversations in the report.
 - "Users cannot be imported as guests or merged into existing guest accounts",
-  so a person who is a guest in the destination needs handling by hand.
+  so a merge that targets a guest is flagged (`guest: true`) for handling by
+  hand.
 
 Bots are skipped entirely by `needsSlackAccount()`: `buildOne()` writes their
 messages with the `bot_message` subtype and a `username`, so no account is

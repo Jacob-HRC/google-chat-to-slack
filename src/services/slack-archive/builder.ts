@@ -12,6 +12,7 @@ import type {
   ArchiveConversation,
   ArchiveManifest,
   ArchiveModel,
+  ArchiveUserMapping,
   ConversationPlan,
   FileUploadTask,
   SlackExportChannel,
@@ -40,6 +41,7 @@ import {
   type FileStrategy,
   type MessageBuildContext,
 } from './messages';
+import { indexMembersByEmail, type SlackMemberSnapshot } from './slack-members';
 import { buildUsers, type UserOverride } from './users';
 
 export interface BuildArchiveOptions {
@@ -58,6 +60,8 @@ export interface BuildArchiveOptions {
   vaultPrefix?: string;
   /** Domain for synthetic addresses; see BuildUsersOptions. */
   placeholderEmailDomain?: string;
+  /** Who already exists in the destination; see slack-members.ts. */
+  slackMembers?: SlackMemberSnapshot;
 }
 
 interface LoadedSpace {
@@ -158,6 +162,7 @@ function emptyManifest(options: BuildArchiveOptions): ArchiveManifest {
       firstSeenAfterRun: options.firstSeenAfterRun,
       messagesSince: options.messagesSince,
       spaceFilter: options.spaceFilter,
+      slackMembersFetchedAt: options.slackMembers?.fetchedAt,
     },
     users: {},
     conversations: {},
@@ -171,6 +176,10 @@ function emptyManifest(options: BuildArchiveOptions): ArchiveManifest {
     totals: {
       users: 0,
       placeholders: 0,
+      merge: 0,
+      deactivated: 0,
+      noEmail: 0,
+      guests: 0,
       channels: 0,
       groups: 0,
       dms: 0,
@@ -181,6 +190,33 @@ function emptyManifest(options: BuildArchiveOptions): ArchiveManifest {
     },
     warnings: [],
   };
+}
+
+function countPeople(
+  model: ArchiveModel,
+  byChatId: Map<string, ArchiveUserMapping>
+): void {
+  const totals = model.manifest.totals;
+  const seen = new Set<string>();
+  for (const mapping of byChatId.values()) {
+    if (seen.has(mapping.slackId)) {
+      continue;
+    }
+    seen.add(mapping.slackId);
+    totals.users += 1;
+    totals.placeholders += mapping.placeholder ? 1 : 0;
+    totals.guests += mapping.guest ? 1 : 0;
+    switch (mapping.importAction) {
+      case 'merge':
+        totals.merge += 1;
+        break;
+      case 'deactivated':
+        totals.deactivated += 1;
+        break;
+      default:
+        totals.noEmail += 1;
+    }
+  }
 }
 
 function place(model: ArchiveModel, plan: ConversationPlan): void {
@@ -220,6 +256,9 @@ export async function buildArchiveModel(
     teamId: options.teamId,
     overrides: options.overrides,
     placeholderEmailDomain: options.placeholderEmailDomain,
+    slackMembersByEmail: options.slackMembers
+      ? indexMembersByEmail(options.slackMembers)
+      : undefined,
   });
 
   const model: ArchiveModel = {
@@ -235,10 +274,12 @@ export async function buildArchiveModel(
   for (const [chatUserId, mapping] of byChatId) {
     model.manifest.users[chatUserId] = mapping;
   }
-  model.manifest.totals.users = users.length;
-  model.manifest.totals.placeholders = Array.from(byChatId.values()).filter(
-    (m) => m.placeholder
-  ).length;
+  countPeople(model, byChatId);
+  if (!options.slackMembers) {
+    model.manifest.warnings.push(
+      'No Slack member snapshot given (--slack-members); everyone is emitted deactivated and merges into existing members cannot be checked'
+    );
+  }
   for (const id of ids) {
     if (!allUsers[id]) {
       model.manifest.warnings.push(

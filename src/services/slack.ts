@@ -114,7 +114,7 @@ async function testSlackToken(
   }
 }
 
-async function getSlackWebClient(): Promise<WebClient> {
+export async function getSlackWebClient(): Promise<WebClient> {
   // First try environment variable
   if (config.SLACK_BOT_TOKEN) {
     return new WebClient(config.SLACK_BOT_TOKEN);

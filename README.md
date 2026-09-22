@@ -421,6 +421,7 @@ In the Slack archive, Vault-recovered channels say so in their purpose.
 ### Build the Slack import archive
 
 ```bash
+googletoslack slack-members                                 # snapshot who is already in Slack (read-only)
 googletoslack build-slack-archive --dry-run                 # report only
 googletoslack build-slack-archive                           # ZIP under data/slack-archive/
 googletoslack build-slack-archive --space general --unpacked ./check   # one Space plus a readable copy
@@ -449,25 +450,42 @@ edits, per-user reactions (Slack short names), @mentions as real Slack mentions
 for people in `users.json`, and quoted messages as a quote block. Deleted
 messages follow `--deleted tombstone|content|omit`.
 
-**People who no longer have a Google account** become deactivated Slack members.
-Slack does not bill deactivated accounts, keeps their messages and files, and
-lets you reactivate any of them later (one at a time; there is no bulk action).
+**People.** Slack's importer maps each row in `users.json` to an existing
+member by email and asks what to do with the rest. The archive is built so the
+mapping screen defaults to the safe answer for everyone:
 
-Two details decide whether their history survives the import:
+- **Already in Slack:** the row merges into the existing member. Rows carry
+  only a name and email, so nothing in their profile is touched.
+- **Everyone else, including people still active in Google:** the row is
+  emitted with `deleted: true`, so the importer defaults to *Import as
+  deactivated*. The account is created, their messages and DMs import, and
+  the person is not billed, cannot sign in and is not invited or emailed. Use
+  this when the migration cannot be announced yet; reactivate people later
+  (one at a time in the UI, or in bulk through SCIM on plans that have it).
+  Never pick *Import just their messages* for someone who is in a DM: that
+  drops the DM.
+
+Run `slack-members` first. It uses the bot token (`users:read`,
+`users:read.email`, `team:read`) to write `data/slack/members.json`, which
+`build-slack-archive` picks up by default (`--slack-members <path>` to point
+elsewhere). Without a snapshot everyone is emitted deactivated and the report
+cannot say who will merge. The dry-run report shows the split (merge, created
+deactivated, no address) and lists the DMs the importer would drop.
+
+Two details decide whether a person's history survives the import:
 
 - Slack imports a DM only when *every* participant is imported. Someone with no
   email address cannot be matched or created, so their DMs are dropped along
   with any files they shared. `--placeholder-email-domain <domain>` mints a
   stand-in address like `chat-import-1234567890@<domain>` for anyone who has
   none, which keeps those conversations. Use a domain you control.
-- Bots are not emitted as Slack users at all. Their messages carry a
-  `bot_message` subtype and a username, so no account is needed.
+- Slack cannot merge into a guest account. Anyone who matches a guest is
+  flagged in the report for handling by hand.
 
-**People.** Each row in `users.json` carries only a name and email so that the
-importer's mapping step can merge it into an existing member without touching
-their profile. Suspended, deleted, external and bot accounts are marked
-deactivated. `--user-overrides` takes a JSON object keyed by Google user id
-(`users/<id>`) with `name` and/or `email` for placeholders you can identify.
+Bots are not emitted as Slack users at all. Their messages carry a
+`bot_message` subtype and a username, so no account is needed.
+`--user-overrides` takes a JSON object keyed by Google user id (`users/<id>`)
+with `name` and/or `email` for placeholders you can identify.
 
 **Files.** Slack exports carry file links, not bytes. Two strategies:
 

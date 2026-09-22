@@ -14,6 +14,12 @@ import {
 } from '../../services/slack-archive/ids';
 import { TOMBSTONE_TEXT } from '../../services/slack-archive/messages';
 import {
+  decideImportAction,
+  indexMembersByEmail,
+  type SlackMemberSnapshot,
+  summarizeSnapshot,
+} from '../../services/slack-archive/slack-members';
+import {
   convertFormattedText,
   escapeSlackText,
   reactionShortName,
@@ -24,6 +30,7 @@ import {
 } from '../../services/slack-archive/users';
 import {
   archiveEntries,
+  conversationsAtRisk,
   writeArchive,
 } from '../../services/slack-archive/writer';
 import type {
@@ -123,13 +130,94 @@ describe('text', () => {
   });
 });
 
+const SLACK_SNAPSHOT: SlackMemberSnapshot = {
+  fetchedAt: '2026-09-22T00:00:00.000Z',
+  teamId: 'TREAL',
+  teamName: 'Example',
+  teamDomain: 'example',
+  members: [
+    {
+      id: 'UPASTOR',
+      name: 'pastor',
+      email: 'Pastor@Example.com',
+      deleted: false,
+      isBot: false,
+      isGuest: false,
+    },
+    {
+      id: 'UGUEST',
+      name: 'guest',
+      email: 'guest@example.com',
+      deleted: false,
+      isBot: false,
+      isGuest: true,
+    },
+    {
+      id: 'UOLD',
+      name: 'old',
+      email: 'old@example.com',
+      deleted: true,
+      isBot: false,
+      isGuest: false,
+    },
+    {
+      id: 'UBOT',
+      name: 'bot',
+      email: 'pastor@example.com',
+      deleted: false,
+      isBot: true,
+      isGuest: false,
+    },
+  ],
+};
+
+describe('slack members', () => {
+  const byEmail = indexMembersByEmail(SLACK_SNAPSHOT);
+
+  it('indexes humans by lower-cased email and ignores bots', () => {
+    expect(byEmail.get('pastor@example.com')?.id).toBe('UPASTOR');
+    expect(byEmail.has('bot')).toBe(false);
+    expect(summarizeSnapshot(SLACK_SNAPSHOT)).toEqual({
+      active: 2,
+      deactivated: 1,
+      bots: 1,
+      guests: 1,
+      withoutEmail: 0,
+    });
+  });
+
+  it('merges on a matching email, creates everyone else deactivated', () => {
+    expect(decideImportAction('PASTOR@example.com', byEmail)).toMatchObject({
+      action: 'merge',
+      member: { id: 'UPASTOR' },
+      guest: false,
+    });
+    expect(decideImportAction('new@example.com', byEmail)).toEqual({
+      action: 'deactivated',
+      guest: false,
+    });
+    expect(decideImportAction(undefined, byEmail)).toEqual({
+      action: 'no-email',
+      guest: false,
+    });
+    expect(decideImportAction('guest@example.com', byEmail).guest).toBe(true);
+  });
+
+  it('never creates an active account without a snapshot', () => {
+    expect(decideImportAction('pastor@example.com', undefined).action).toBe(
+      'deactivated'
+    );
+  });
+});
+
 describe('users', () => {
-  it('emits email and name only, marks non-active people deactivated, applies overrides', () => {
+  it('emits email and name only, merges known members, creates the rest deactivated', () => {
     const { users, byChatId } = buildUsers(Object.values(FIXTURE_USERS), {
       teamId: 'T1',
       overrides: {
         [USER_FORMER]: { name: 'Fran Former', email: 'fran@old.example.com' },
       },
+      slackMembersByEmail: indexMembersByEmail(SLACK_SNAPSHOT),
     });
     const pastor = users.find(
       (u) => u.id === byChatId.get(USER_PASTOR)?.slackId
@@ -141,6 +229,10 @@ describe('users', () => {
       profile: { email: 'pastor@example.com', real_name: 'Pat Pastor' },
       is_bot: false,
     });
+    expect(byChatId.get(USER_PASTOR)).toMatchObject({
+      importAction: 'merge',
+      slackMemberId: 'UPASTOR',
+    });
     expect(Object.keys(pastor?.profile ?? {}).sort()).toEqual([
       'display_name',
       'display_name_normalized',
@@ -149,7 +241,11 @@ describe('users', () => {
       'real_name_normalized',
       'team',
     ]);
-    expect(byChatId.get(USER_ADMIN)?.deleted).toBe(true);
+    // Active in Google but not yet in Slack: created deactivated, never invited.
+    expect(byChatId.get(USER_ADMIN)).toMatchObject({
+      deleted: true,
+      importAction: 'deactivated',
+    });
     const former = users.find(
       (u) => u.id === byChatId.get(USER_FORMER)?.slackId
     );
@@ -162,6 +258,29 @@ describe('users', () => {
     // Bots never need an account: their messages carry a username, not a user id.
     expect(users.some((u) => u.is_bot)).toBe(false);
     expect(byChatId.has(USER_BOT)).toBe(false);
+  });
+
+  it('emits everyone deactivated when no snapshot is given', () => {
+    const { users, byChatId } = buildUsers(Object.values(FIXTURE_USERS), {
+      teamId: 'T1',
+      overrides: {},
+    });
+    expect(users.every((u) => u.deleted)).toBe(true);
+    expect(byChatId.get(USER_PASTOR)?.importAction).toBe('deactivated');
+    expect(byChatId.get(USER_FORMER)?.importAction).toBe('no-email');
+  });
+
+  it('keeps a merge into an already deactivated member deactivated', () => {
+    const { byChatId } = buildUsers(Object.values(FIXTURE_USERS), {
+      teamId: 'T1',
+      overrides: { [USER_ADMIN]: { email: 'old@example.com' } },
+      slackMembersByEmail: indexMembersByEmail(SLACK_SNAPSHOT),
+    });
+    expect(byChatId.get(USER_ADMIN)).toMatchObject({
+      importAction: 'merge',
+      slackMemberId: 'UOLD',
+      deleted: true,
+    });
   });
 
   it('mints a stand-in address only for people who have none', () => {
@@ -223,6 +342,8 @@ describe('Vault-recovered spaces', () => {
         status: 'active',
         placeholder: false,
         deleted: false,
+        importAction: 'merge' as const,
+        guest: false,
       },
     ],
   ]);
@@ -288,11 +409,30 @@ describe('archive from a fixture store', () => {
       deletedPolicy: 'tombstone',
       fileStrategy: 'manifest',
       overrides: {},
+      slackMembers: SLACK_SNAPSHOT,
     });
   });
 
   afterAll(async () => {
     await rm(fixture.dir, { recursive: true, force: true });
+  });
+
+  it('reports who merges, who is created deactivated, and the DMs at risk', () => {
+    expect(model.manifest.totals).toMatchObject({
+      merge: 1,
+      deactivated: 2,
+      noEmail: 1,
+      guests: 0,
+    });
+    expect(model.manifest.options.slackMembersFetchedAt).toBe(
+      SLACK_SNAPSHOT.fetchedAt
+    );
+    const atRisk = conversationsAtRisk(model);
+    expect(atRisk.length).toBeGreaterThan(0);
+    expect(atRisk.every((c) => c.unmapped.length > 0)).toBe(true);
+    expect(
+      model.manifest.warnings.some((w) => w.includes('--slack-members'))
+    ).toBe(false);
   });
 
   function messagesOf(name: string): SlackExportMessage[] {

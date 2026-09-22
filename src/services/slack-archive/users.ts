@@ -1,9 +1,13 @@
 /**
  * users.json for the archive. Every referenced person gets a row so the
  * importer's mapping step can match them by email to existing members.
- * People without a directory record are emitted as deactivated placeholders.
- * Rows deliberately carry nothing beyond name and email, so merging into an
- * existing member cannot overwrite profile details.
+ *
+ * Anyone not already in the destination workspace is emitted with
+ * `deleted: true`, so the importer defaults them to "Import as deactivated":
+ * the account exists, their DMs import, nothing is billed, and nobody is
+ * invited or told. People whose email matches an existing member merge into
+ * it. Rows deliberately carry nothing beyond name and email, so merging into
+ * an existing member cannot overwrite profile details.
  */
 import type { StoredUser } from '../../types/export-store';
 import type {
@@ -12,6 +16,7 @@ import type {
 } from '../../types/slack-export';
 import { displayNameOf } from '../user-resolver';
 import { normalizeHandle, slackIdFor } from './ids';
+import { decideImportAction, type SlackMember } from './slack-members';
 
 export interface UserOverride {
   name?: string;
@@ -31,6 +36,13 @@ export interface BuildUsersOptions {
    * Leave unset to emit no address at all.
    */
   placeholderEmailDomain?: string;
+  /**
+   * Existing Slack members keyed by lower-cased email, from a
+   * `slack-members` snapshot. Decides merge versus deactivated per person.
+   * Without it nobody can be confirmed as existing, so everyone is emitted
+   * deactivated; the importer still merges on matching email.
+   */
+  slackMembersByEmail?: Map<string, SlackMember>;
 }
 
 export interface BuiltUsers {
@@ -67,8 +79,15 @@ function handleFor(
   return candidate;
 }
 
-export function isDeactivatedInSlack(user: StoredUser): boolean {
-  return user.status !== 'active';
+/**
+ * The `deleted` flag written to users.json. Only a person who merges into an
+ * existing active member is emitted active; the flag then changes nothing
+ * about that member. Everyone else is created deactivated.
+ */
+export function isEmittedDeactivated(
+  decision: ReturnType<typeof decideImportAction>
+): boolean {
+  return decision.action !== 'merge' || decision.member?.deleted === true;
 }
 
 /**
@@ -104,7 +123,8 @@ function buildRow(
       ? placeholderEmail(person.chatUserId, options.placeholderEmailDomain)
       : undefined);
   const slackId = slackIdFor('U', person.chatUserId);
-  const deleted = isDeactivatedInSlack(person);
+  const decision = decideImportAction(email, options.slackMembersByEmail);
+  const deleted = isEmittedDeactivated(decision);
   const handle = handleFor(email, name, person.chatUserId, used);
 
   return {
@@ -132,6 +152,9 @@ function buildRow(
       status: person.status,
       placeholder: person.isPlaceholder || Boolean(override.name),
       deleted,
+      importAction: decision.action,
+      slackMemberId: decision.member?.id,
+      guest: decision.guest,
     },
   };
 }

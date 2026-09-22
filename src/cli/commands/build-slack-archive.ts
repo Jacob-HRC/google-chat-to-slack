@@ -1,3 +1,4 @@
+import { access } from 'node:fs/promises';
 import path from 'node:path';
 import type { CommandModule } from 'yargs';
 import {
@@ -9,6 +10,7 @@ import type {
   DeletedPolicy,
   FileStrategy,
 } from '../../services/slack-archive/messages';
+import type { SlackMemberSnapshot } from '../../services/slack-archive/slack-members';
 import type { UserOverride } from '../../services/slack-archive/users';
 import {
   printArchiveReport,
@@ -17,6 +19,7 @@ import {
 import type { ArchiveModel } from '../../types/slack-export';
 import {
   getDefaultSlackArchiveDirectory,
+  getDefaultSlackMembersFile,
   getDefaultWorkspaceExportDirectory,
 } from '../../utils/data-directory';
 import { readJsonFile } from '../../utils/fs-atomic';
@@ -39,7 +42,41 @@ type BuildArgs = {
   teamId?: string;
   vaultPrefix?: string;
   placeholderEmailDomain?: string;
+  slackMembers?: string;
 };
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Loads the member snapshot. An explicit path must exist; the default path is
+ * optional so a build on a machine without Slack access still works.
+ */
+async function loadSlackMembers(
+  argv: BuildArgs
+): Promise<SlackMemberSnapshot | undefined> {
+  const explicit = argv.slackMembers !== undefined && argv.slackMembers !== '';
+  const filePath = path.resolve(
+    argv.slackMembers || getDefaultSlackMembersFile()
+  );
+  if (!(await fileExists(filePath))) {
+    if (explicit) {
+      throw new Error(`--slack-members file not found: ${filePath}`);
+    }
+    return;
+  }
+  const snapshot = await readJsonFile<SlackMemberSnapshot>(filePath);
+  if (!(snapshot && Array.isArray(snapshot.members))) {
+    throw new Error(`${filePath} is not a slack-members snapshot`);
+  }
+  return snapshot;
+}
 
 async function toBuildOptions(argv: BuildArgs): Promise<BuildArchiveOptions> {
   if (argv.files === 'hosted' && !argv.filesBaseUrl) {
@@ -53,9 +90,10 @@ async function toBuildOptions(argv: BuildArgs): Promise<BuildArchiveOptions> {
         path.resolve(argv.userOverrides)
       )) ?? {})
     : {};
+  const slackMembers = await loadSlackMembers(argv);
   return {
     storeDir: path.resolve(argv.input),
-    teamId: argv.teamId ?? 'T0GCHAT0001',
+    teamId: argv.teamId ?? slackMembers?.teamId ?? 'T0GCHAT0001',
     spaceFilter: argv.space ?? [],
     skipBotDms: !argv.includeBotDms,
     spaceVisibility: (argv.spaceVisibility ?? 'private') as SpaceVisibility,
@@ -67,6 +105,7 @@ async function toBuildOptions(argv: BuildArgs): Promise<BuildArchiveOptions> {
     messagesSince: argv.messagesSince,
     vaultPrefix: argv.vaultPrefix,
     placeholderEmailDomain: argv.placeholderEmailDomain,
+    slackMembers,
   };
 }
 
@@ -183,10 +222,15 @@ export const buildSlackArchiveCommand: CommandModule<object, BuildArgs> = {
         type: 'string',
         default: '',
       })
-      .option('team-id', {
-        describe: 'Team id written into users.json.',
+      .option('slack-members', {
+        describe:
+          'Snapshot from `slack-members`. People whose email matches an existing member merge into it; everyone else is emitted deactivated so the importer creates them without inviting or notifying anyone. Defaults to data/slack/members.json when present.',
         type: 'string',
-        default: 'T0GCHAT0001',
+      })
+      .option('team-id', {
+        describe:
+          'Team id written into users.json. Defaults to the id in the member snapshot.',
+        type: 'string',
       })
       .example(
         '$0 build-slack-archive --dry-run',
