@@ -296,6 +296,16 @@ export interface SpaceRunResult {
   durationMs: number;
 }
 
+/** One line per space found during discovery, written before any sync starts. */
+export interface DiscoveredSpaceRecord {
+  spaceId: string;
+  name: string;
+  spaceType: string;
+  displayName: string;
+  readers: string[];
+  discoveredRun: string;
+}
+
 export interface UnreachableSpace {
   spaceId: string;
   displayName: string;

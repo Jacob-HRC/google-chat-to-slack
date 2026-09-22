@@ -57,6 +57,7 @@ import {
   openStore,
   recordRunPointer,
   saveAttachmentIndex,
+  saveDiscoveredSpaces,
   saveMessages,
   saveRunReport,
   saveSpace,
@@ -401,6 +402,19 @@ async function discoverSpaces(
     }
   );
   const discovered = dedupeDiscoveredSpaces(listings);
+  if (!ctx.options.dryRun) {
+    await saveDiscoveredSpaces(
+      ctx.store,
+      Array.from(discovered.values()).map((d) => ({
+        spaceId: d.spaceId,
+        name: d.raw.name ?? '',
+        spaceType: d.raw.spaceType ?? 'UNKNOWN',
+        displayName: d.raw.displayName ?? '',
+        readers: d.readers,
+        discoveredRun: ctx.runId,
+      }))
+    );
+  }
   const failed = ctx.report.subjects.filter((s) => s.error).length;
   console.log(
     `   ${discovered.size} unique space(s) across ${subjects.length} user(s)${failed ? `, ${failed} user(s) failed` : ''}`
@@ -437,7 +451,7 @@ async function adminSweep(
     const entry: UnreachableSpace = {
       spaceId,
       displayName: space.displayName ?? '',
-      reason: 'No selected user is a member of this space.',
+      reason: `None of the ${ctx.subjectEmails.size} selected user(s) is a member of this space.`,
     };
     try {
       // biome-ignore lint/nursery/noAwaitInLoop: one admin call per unreachable space, sequential to respect quota.
@@ -449,10 +463,12 @@ async function adminSweep(
       entry.reason += ` Membership lookup failed: ${describeGoogleError(error)}`;
     }
     unreachable.push(entry);
+  }
+  if (unreachable.length > 0) {
     ctx.logger.addWarning(
       'admin_search',
-      `${spaceId} (${entry.displayName})`,
-      entry.reason
+      'unreachable-spaces.json',
+      `${unreachable.length} named space(s) have no member among the ${ctx.subjectEmails.size} selected user(s). Widen the selection or reactivate a former member to export them.`
     );
   }
   ctx.report.unreachableSpaces = unreachable;
@@ -460,7 +476,7 @@ async function adminSweep(
     await saveUnreachableSpaces(ctx.store, unreachable);
   }
   console.log(
-    `🛡  Admin sweep: ${all.length} named space(s) in the domain, ${unreachable.length} not reachable by the selected users`
+    `🛡  Admin sweep: ${all.length} named space(s) in the domain, ${unreachable.length} with no member among the ${ctx.subjectEmails.size} selected user(s)`
   );
 }
 

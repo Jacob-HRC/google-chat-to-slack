@@ -20,6 +20,7 @@ import path from 'node:path';
 import type { chat_v1 } from 'googleapis';
 import type {
   AttachmentRecord,
+  DiscoveredSpaceRecord,
   MemberType,
   RunPointer,
   RunReport,
@@ -72,6 +73,9 @@ export function attachmentsIndexPath(root: string): string {
 }
 export function attachmentsFilesDir(root: string): string {
   return path.join(root, 'attachments', 'files');
+}
+export function discoveredPath(root: string): string {
+  return path.join(root, 'discovered-spaces.json');
 }
 export function unreachablePath(root: string): string {
   return path.join(root, 'unreachable-spaces.json');
@@ -214,6 +218,23 @@ export async function saveAttachmentIndex(
   index: Record<string, AttachmentRecord>
 ): Promise<void> {
   await writeJsonAtomic(attachmentsIndexPath(store.rootDir), index);
+}
+
+export async function saveDiscoveredSpaces(
+  store: ExportStore,
+  spaces: DiscoveredSpaceRecord[]
+): Promise<void> {
+  await writeJsonAtomic(discoveredPath(store.rootDir), spaces);
+}
+
+export async function loadDiscoveredSpaces(
+  store: ExportStore
+): Promise<DiscoveredSpaceRecord[]> {
+  return (
+    (await readJsonFile<DiscoveredSpaceRecord[]>(
+      discoveredPath(store.rootDir)
+    )) ?? []
+  );
 }
 
 export async function saveUnreachableSpaces(

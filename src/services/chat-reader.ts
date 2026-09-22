@@ -113,6 +113,8 @@ export async function listMembershipsAs(
         showGroups: true,
         showInvited: true,
         useAdminAccess,
+        // Admin access requires a member.type filter and cannot list apps.
+        filter: useAdminAccess ? 'member.type != "BOT"' : undefined,
       });
       return {
         items: res.data.memberships,
