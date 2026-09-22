@@ -26,38 +26,68 @@ for (const configPath of configPaths) {
   }
 }
 
+// Treat empty strings as unset so `FOO=""` behaves like a missing variable.
+const optionalString = z.preprocess(
+  (value) => (value === '' ? undefined : value),
+  z.string().optional()
+);
+
 const configSchema = z.object({
-  GOOGLE_CLIENT_ID: z.string().min(1),
-  GOOGLE_CLIENT_SECRET: z.string().min(1),
-  SLACK_BOT_TOKEN: z.string().optional(),
+  // OAuth client for the interactive `login google` flow.
+  GOOGLE_CLIENT_ID: optionalString,
+  GOOGLE_CLIENT_SECRET: optionalString,
+  // Service account with domain-wide delegation (alternative to OAuth).
+  // Either a path to the JSON key file or the JSON content itself.
+  GOOGLE_SERVICE_ACCOUNT_KEY_FILE: optionalString,
+  GOOGLE_SERVICE_ACCOUNT_KEY: optionalString,
+  // Workspace admin to impersonate for Directory API calls.
+  GOOGLE_ADMIN_SUBJECT: optionalString,
+  SLACK_BOT_TOKEN: optionalString,
 });
 
-const parsedConfig = configSchema.safeParse(process.env);
+export type AppConfig = z.infer<typeof configSchema>;
 
-if (!parsedConfig.success) {
-  const errors = parsedConfig.error.flatten().fieldErrors;
-  console.error('Missing required environment variables:');
+// All fields are optional at load time. Each auth mode validates what it needs
+// at the point of use so that, for example, service-account users never have to
+// supply an OAuth client ID and the test suite can import services freely.
+export const config: AppConfig = configSchema.parse(process.env);
 
-  if (errors.GOOGLE_CLIENT_ID) {
-    console.error('  GOOGLE_CLIENT_ID is required');
-  }
-  if (errors.GOOGLE_CLIENT_SECRET) {
-    console.error('  GOOGLE_CLIENT_SECRET is required');
-  }
-
-  console.error('\nYou can set these by:');
-  console.error('1. Setting environment variables:');
-  console.error('   export GOOGLE_CLIENT_ID="your_client_id"');
-  console.error('   export GOOGLE_CLIENT_SECRET="your_client_secret"');
-  console.error('\n2. Creating a config file at:');
-  console.error(`   ${join(homedir(), '.googletoslack', 'config')}`);
-  console.error('   or');
-  console.error(`   ${join(homedir(), '.config', 'googletoslack', 'config')}`);
-  console.error(
-    '\n3. For development, create a .env file in the project directory'
-  );
-
-  process.exit(1);
+export interface GoogleOAuthConfig {
+  clientId: string;
+  clientSecret: string;
 }
 
-export const config = parsedConfig.data;
+export function requireGoogleOAuthConfig(): GoogleOAuthConfig {
+  const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } = config;
+  if (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET) {
+    return { clientId: GOOGLE_CLIENT_ID, clientSecret: GOOGLE_CLIENT_SECRET };
+  }
+
+  const missing: string[] = [];
+  if (!GOOGLE_CLIENT_ID) {
+    missing.push('GOOGLE_CLIENT_ID');
+  }
+  if (!GOOGLE_CLIENT_SECRET) {
+    missing.push('GOOGLE_CLIENT_SECRET');
+  }
+
+  throw new Error(
+    [
+      `Missing required environment variables: ${missing.join(', ')}`,
+      '',
+      'You can set these by:',
+      '1. Setting environment variables:',
+      '   export GOOGLE_CLIENT_ID="your_client_id"',
+      '   export GOOGLE_CLIENT_SECRET="your_client_secret"',
+      '',
+      '2. Creating a config file at:',
+      `   ${join(homedir(), '.googletoslack', 'config')}`,
+      '   or',
+      `   ${join(homedir(), '.config', 'googletoslack', 'config')}`,
+      '',
+      '3. For development, create a .env file in the project directory',
+      '',
+      'Or use a service account instead (see README, "Service account auth").',
+    ].join('\n')
+  );
+}

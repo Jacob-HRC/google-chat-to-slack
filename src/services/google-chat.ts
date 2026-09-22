@@ -8,7 +8,7 @@ import type { GaxiosError, GaxiosResponse } from 'gaxios';
 import { OAuth2Client } from 'google-auth-library';
 import { type chat_v1, google } from 'googleapis';
 import open from 'open';
-import { config } from '../config';
+import { requireGoogleOAuthConfig } from '../config';
 import type {
   ExportData,
   GoogleAttachment,
@@ -37,11 +37,8 @@ const SCOPES = [
 ];
 
 function getOauth2Client(): OAuth2Client {
-  return new OAuth2Client(
-    config.GOOGLE_CLIENT_ID,
-    config.GOOGLE_CLIENT_SECRET,
-    REDIRECT_URI
-  );
+  const { clientId, clientSecret } = requireGoogleOAuthConfig();
+  return new OAuth2Client(clientId, clientSecret, REDIRECT_URI);
 }
 
 function startServerForCodeRedirect(): Promise<string> {
