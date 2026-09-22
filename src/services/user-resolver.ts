@@ -12,6 +12,13 @@ import { mapWithConcurrency } from '../utils/concurrency';
 import type { DomainUser } from './directory';
 
 const USERS_PREFIX_REGEX = /^users\//;
+// Names Google substitutes for people who no longer exist. They carry no
+// identity, so placeholders fall back to an id-based name instead.
+const GENERIC_DISPLAY_NAMES = new Set(['deleted user', 'unknown user', '']);
+
+export function isGenericDisplayName(name: string | undefined): boolean {
+  return GENERIC_DISPLAY_NAMES.has((name ?? '').trim().toLowerCase());
+}
 
 export interface ChatUserRef {
   chatUserId: string;
@@ -129,11 +136,15 @@ function asPlaceholder(
     chatUserId: ref.chatUserId,
     directoryId: existing?.directoryId ?? directoryIdOf(ref.chatUserId),
     email: existing?.email,
-    fullName: existing?.fullName ?? ref.displayName,
+    fullName:
+      existing?.fullName ??
+      (isGenericDisplayName(ref.displayName) ? undefined : ref.displayName),
     chatDisplayName: ref.displayName ?? existing?.chatDisplayName,
     status,
     isPlaceholder: true,
-    placeholderName: ref.displayName ?? placeholderName(ref.chatUserId, status),
+    placeholderName: isGenericDisplayName(ref.displayName)
+      ? placeholderName(ref.chatUserId, status)
+      : (ref.displayName as string),
     orgUnitPath: existing?.orgUnitPath,
     domainId: ref.domainId ?? existing?.domainId,
     sources: Array.from(

@@ -101,6 +101,18 @@ describe('resolveChatUsers', () => {
     });
   });
 
+  it('ignores Google\'s generic "Deleted User" label so placeholders stay distinct', async () => {
+    const users = await resolveChatUsers(
+      refs([USER_FORMER, { type: 'HUMAN', displayName: 'Deleted User' }]),
+      {},
+      lookup,
+      options
+    );
+    expect(users[USER_FORMER].placeholderName).toBe('Former user 000003');
+    expect(users[USER_FORMER].fullName).toBeUndefined();
+    expect(users[USER_FORMER].chatDisplayName).toBe('Deleted User');
+  });
+
   it('labels bots and external users without a directory lookup', async () => {
     const users = await resolveChatUsers(
       refs(
