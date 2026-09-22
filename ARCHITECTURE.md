@@ -329,7 +329,49 @@ Vault scope lives in `VAULT_SCOPES` rather than `GOOGLE_SCOPES`. A JWT is
 refused entirely if any requested scope is unauthorized, so a missing Vault
 grant must not be able to break Chat and Drive access.
 
-### Research notes: Vault
+#### Vault export format, measured (2026-09-22)
+
+The 96 member-less Spaces were exported and inspected. What Vault actually
+delivers, as opposed to what the docs imply:
+
+```
+chat-orphan-spaces-1.zip          2.4 GB
+  └── chat-orphan-spaces_0.mbox.zip
+        └── chat-orphan-spaces_0.mbox      3.3 GB
+chat-orphan-spaces-metadata.xml   3.6 MB
+chat-orphan-spaces-errors.csv     1 row
+```
+
+- The mbox holds **2195 documents**, one per space per 24-hour block, covering
+  all 96 spaces. Vault's "2196 messages" counts documents, not chat messages.
+- Each document is **rendered HTML**, not structured data. Individual messages
+  appear as `<div data-id="<messageId>">` with the sender's **email** in bold,
+  a human-readable timestamp, and the text. About **9,979** individual
+  messages across the set.
+- **6,651 attachment parts** are embedded as MIME attachments with their
+  original filenames, so the files come back.
+- `metadata.xml` carries per document: `RoomID`, `RoomName`,
+  `ConversationType`, `Participants` (emails), and
+  `#DateFirst/LastMessageSent/Received` at millisecond precision.
+- `errors.csv` reported one failure: space `team-youth` had a topic containing
+  a message larger than the file size limit.
+
+Fidelity against the Chat API path:
+
+| | Chat API | Vault |
+| --- | --- | --- |
+| Text, sender | yes (user id) | yes (email, which maps to Slack directly) |
+| Timestamp | microsecond | second, from rendered text |
+| Threads | thread id and replies | flattened |
+| Reactions | per user | absent |
+| Edits, deletions | recorded with history | absent |
+| Attachments | downloaded, Drive metadata | embedded MIME parts |
+
+A Vault-sourced conversation can therefore be imported as readable history
+with real senders and files, but not with threading, reactions, or exact
+timestamps. Parsing it means HTML scraping plus MIME extraction, not JSON.
+
+## Research notes: Vault
 
 - Vault UI cannot reach these spaces: "To select spaces and group
   conversations, you enter the account of a member of the space. You can't

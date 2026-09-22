@@ -171,3 +171,20 @@ Vault export of all 96 member-less Spaces started:
 Blocked on Jacob: add https://www.googleapis.com/auth/devstorage.read_only to
 the delegation entry, then `pnpm start vault download --matter 76f80a78-5dcb-4ff7-b68c-1652fe110dcf`.
 Until then the export can be downloaded by hand from the Vault console.
+
+## Vault export completed and inspected (2026-09-22)
+
+Matter 76f80a78-5dcb-4ff7-b68c-1652fe110dcf, export "chat-orphan-spaces":
+COMPLETED, 2196 documents, 2359.5 MB, downloaded to
+data/vault-exports/chat-orphan-spaces/ (devstorage.read_only scope added and
+working).
+
+Measured contents: all 96 spaces present, ~9,979 individual messages, 6,651
+attachment parts with original filenames. Format is rendered HTML inside an
+mbox plus an XML metadata sidecar; see ARCHITECTURE "Vault export format,
+measured". No threads, reactions, edits or sub-second timestamps survive.
+
+Decision pending from Jacob: write a Vault parser (HTML + MIME) to fold these
+into the store as archival-quality conversations, or leave the export as a
+downloadable archive. Roughly 10k messages against 42k+ in Jacob's account
+alone, so a small but real slice.
