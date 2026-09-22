@@ -10,7 +10,9 @@ import {
   type NameEvidence,
   nameFromEmail,
   needsName,
+  planAliases,
   type RecoveredName,
+  resolveAlias,
   reviewWarnings,
 } from '../../services/name-recovery';
 import type { StoredMessage, StoredUser } from '../../types/export-store';
@@ -245,12 +247,14 @@ describe('matchEmails', () => {
     expect(result.emailMatch).toBe('full-name');
   });
 
-  it('matches through an alternate spelling', () => {
+  it('promotes the spelling the address uses, keeping the old one', () => {
     const [result] = matchEmails(
       [named('Jenny Munoz', ['Jenny Fuksa'])],
       [free('jenny.fuksa@hrc.email')]
     );
     expect(result.email).toBe('jenny.fuksa@hrc.email');
+    expect(result.name).toBe('Jenny Fuksa');
+    expect(result.alternates).toEqual(['Jenny Munoz']);
   });
 
   it('accepts a first-name address only when it is unambiguous', () => {
@@ -312,6 +316,7 @@ describe('buildRecoveryPlan and applyRecovery', () => {
     expect(plan.recovered[0].email).toBe('jenny.fuksa@hrc.email');
     expect(plan.unresolved).toEqual(['users/unknowable']);
     expect(plan.warnings).toEqual([]);
+    expect(plan.aliases).toEqual([]);
   });
 
   it('writes recovered names without touching directory-named people', () => {
@@ -337,6 +342,7 @@ describe('buildRecoveryPlan and applyRecovery', () => {
       ],
       unresolved: [],
       warnings: [],
+      aliases: [],
     };
     const { users: next, updated } = applyRecovery(users, plan, 'run');
     expect(updated).toBe(1);
@@ -371,6 +377,7 @@ describe('buildRecoveryPlan and applyRecovery', () => {
         ],
         unresolved: [],
         warnings: [],
+        aliases: [],
       },
       'run'
     );
@@ -419,6 +426,102 @@ describe('reviewWarnings', () => {
         person('users/d', 'Jenny Fuksa', 'jenny.fuksa@hrc.email'),
       ])
     ).toEqual([]);
+  });
+});
+
+describe('aliases', () => {
+  const vaultUser: StoredUser = {
+    chatUserId: 'users/vault-abc',
+    source: 'vault',
+    email: 'jenny.fuksa@hrc.email',
+    fullName: 'jenny.fuksa@hrc.email',
+    status: 'deleted',
+    isPlaceholder: true,
+    sources: ['sender'],
+    firstSeenRun: 'r',
+  };
+  const recovered: RecoveredName = {
+    chatUserId: DELETED,
+    name: 'Jenny Fuksa',
+    confidence: 'high',
+    alternates: ['Jenny Munoz'],
+    fromDisplayName: false,
+    mentionCount: 154,
+    email: 'jenny.fuksa@hrc.email',
+  };
+
+  it('retires the email-keyed record in favour of the id the messages use', () => {
+    const aliases = planAliases([recovered], {
+      [DELETED]: placeholder(DELETED),
+      'users/vault-abc': vaultUser,
+    });
+    expect(aliases).toEqual([
+      {
+        chatUserId: 'users/vault-abc',
+        canonical: DELETED,
+        reason: expect.stringContaining('Jenny Fuksa'),
+      },
+    ]);
+  });
+
+  it('accepts a merge made by hand', () => {
+    const aliases = planAliases([], {}, { 'users/old': 'users/new' });
+    expect(aliases).toEqual([
+      {
+        chatUserId: 'users/old',
+        canonical: 'users/new',
+        reason: 'merged by hand',
+      },
+    ]);
+  });
+
+  it('ignores a record pointed at itself', () => {
+    expect(planAliases([], {}, { 'users/same': 'users/same' })).toEqual([]);
+  });
+
+  it('follows a chain to the record that should be used', () => {
+    const users: Record<string, StoredUser> = {
+      'users/a': { ...placeholder('users/a'), aliasOf: 'users/b' },
+      'users/b': { ...placeholder('users/b'), aliasOf: 'users/c' },
+      'users/c': placeholder('users/c'),
+    };
+    expect(resolveAlias(users, 'users/a')).toBe('users/c');
+    expect(resolveAlias(users, 'users/c')).toBe('users/c');
+    expect(resolveAlias(users, 'users/missing')).toBe('users/missing');
+  });
+
+  it('does not loop on a cycle', () => {
+    const users: Record<string, StoredUser> = {
+      'users/a': { ...placeholder('users/a'), aliasOf: 'users/b' },
+      'users/b': { ...placeholder('users/b'), aliasOf: 'users/a' },
+    };
+    expect(['users/a', 'users/b']).toContain(resolveAlias(users, 'users/a'));
+  });
+
+  it('writes the alias and keeps the merged address', () => {
+    const users: Record<string, StoredUser> = {
+      [DELETED]: placeholder(DELETED),
+      'users/vault-abc': vaultUser,
+    };
+    const { users: next, aliased } = applyRecovery(
+      users,
+      {
+        aliases: [
+          {
+            chatUserId: 'users/vault-abc',
+            canonical: DELETED,
+            reason: 'same person',
+          },
+        ],
+        recovered: [],
+        unresolved: [],
+        warnings: [],
+      },
+      'run'
+    );
+    expect(aliased).toBe(1);
+    expect(next['users/vault-abc'].aliasOf).toBe(DELETED);
+    expect(next[DELETED].email).toBe('jenny.fuksa@hrc.email');
   });
 });
 

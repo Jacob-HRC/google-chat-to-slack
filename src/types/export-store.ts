@@ -57,6 +57,13 @@ export interface StoredUser {
   /** Chat resource name, e.g. `users/1234567890`. */
   chatUserId: string;
   source?: RecordSource;
+  /**
+   * Set when this record is the same human as another one, and points at the
+   * record to use instead. Happens when someone appears both by Chat user id
+   * (API) and by email (Vault), or when they were offboarded and re-onboarded
+   * with a second account.
+   */
+  aliasOf?: string;
   directoryId?: string;
   email?: string;
   fullName?: string;

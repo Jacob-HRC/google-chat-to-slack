@@ -263,11 +263,28 @@ export function matchEmails(
   return names.map((recovered) => {
     const normalized = normalizeForMatch(recovered.name);
     const alternates = recovered.alternates.map(normalizeForMatch);
-    for (const form of [normalized, ...alternates]) {
+    const forms = [normalized, ...alternates];
+    for (const [position, form] of forms.entries()) {
       const exact = byFullName.get(form);
-      if (exact?.length === 1) {
+      if (exact?.length !== 1) {
+        continue;
+      }
+      if (position === 0) {
         return { ...recovered, email: exact[0], emailMatch: 'full-name' };
       }
+      // The address spells an alternate, which is the person's current name
+      // (a marriage, usually). Promote it and keep the old spelling.
+      const promoted = recovered.alternates[position - 1];
+      return {
+        ...recovered,
+        name: promoted,
+        alternates: [
+          recovered.name,
+          ...recovered.alternates.filter((a) => a !== promoted),
+        ],
+        email: exact[0],
+        emailMatch: 'full-name',
+      };
     }
     const first = normalized.split(' ')[0];
     const byFirst = byFirstName.get(first);
@@ -282,7 +299,16 @@ export function matchEmails(
   });
 }
 
+export interface UserAlias {
+  /** The record to retire. */
+  chatUserId: string;
+  /** The record to keep. */
+  canonical: string;
+  reason: string;
+}
+
 export interface RecoveryPlan {
+  aliases: UserAlias[];
   recovered: RecoveredName[];
   /** Placeholders no source could name. */
   unresolved: string[];
@@ -344,11 +370,75 @@ export function needsName(user: StoredUser | undefined): boolean {
   return user.status === 'deleted' || user.status === 'unknown';
 }
 
+/**
+ * Finds records that are the same human twice.
+ *
+ * A Vault import creates a record keyed by email for anyone it cannot match,
+ * while the Chat API knows the same person by user id. Once an email has been
+ * recovered for the API record, the two provably describe one person, so the
+ * email-keyed one is retired in favour of the id-keyed one, which is what
+ * messages actually reference.
+ */
+export function planAliases(
+  recovered: readonly RecoveredName[],
+  users: Record<string, StoredUser>,
+  manual: Record<string, string> = {}
+): UserAlias[] {
+  const aliases: UserAlias[] = [];
+  const emailToVaultId = new Map<string, string>();
+  for (const user of Object.values(users)) {
+    if (user.source === 'vault' && user.email) {
+      emailToVaultId.set(user.email.toLowerCase(), user.chatUserId);
+    }
+  }
+
+  for (const person of recovered) {
+    if (!person.email) {
+      continue;
+    }
+    const vaultId = emailToVaultId.get(person.email.toLowerCase());
+    if (vaultId && vaultId !== person.chatUserId) {
+      aliases.push({
+        chatUserId: vaultId,
+        canonical: person.chatUserId,
+        reason: `same person as ${person.name}, who the Chat API knows by id and Vault knew only by ${person.email}`,
+      });
+    }
+  }
+
+  for (const [chatUserId, canonical] of Object.entries(manual)) {
+    if (chatUserId === canonical) {
+      continue;
+    }
+    aliases.push({
+      chatUserId,
+      canonical,
+      reason: 'merged by hand',
+    });
+  }
+  return aliases;
+}
+
+/** Follows an alias chain to the record that should actually be used. */
+export function resolveAlias(
+  users: Record<string, StoredUser>,
+  chatUserId: string,
+  seen = new Set<string>()
+): string {
+  const user = users[chatUserId];
+  if (!user?.aliasOf || seen.has(chatUserId)) {
+    return chatUserId;
+  }
+  seen.add(chatUserId);
+  return resolveAlias(users, user.aliasOf, seen);
+}
+
 /** Builds the plan: who can be named, from what, and with which email. */
 export function buildRecoveryPlan(
   evidenceByUser: Map<string, NameEvidence>,
   users: Record<string, StoredUser>,
-  vaultEmails: readonly EmailCandidate[]
+  vaultEmails: readonly EmailCandidate[],
+  manualAliases: Record<string, string> = {}
 ): RecoveryPlan {
   const targets = Object.values(users).filter((user) => needsName(user));
   const recovered: RecoveredName[] = [];
@@ -364,10 +454,16 @@ export function buildRecoveryPlan(
     }
   }
   const withEmails = matchEmails(recovered, vaultEmails);
+  const aliases = planAliases(withEmails, users, manualAliases);
+  const aliased = new Set(aliases.map((alias) => alias.chatUserId));
   return {
+    aliases,
     recovered: withEmails,
     unresolved,
-    warnings: reviewWarnings(withEmails),
+    // A record that is about to be merged away needs no name of its own.
+    warnings: reviewWarnings(
+      withEmails.filter((person) => !aliased.has(person.chatUserId))
+    ),
   };
 }
 
@@ -376,9 +472,21 @@ export function applyRecovery(
   users: Record<string, StoredUser>,
   plan: RecoveryPlan,
   runId: string
-): { users: Record<string, StoredUser>; updated: number } {
+): { users: Record<string, StoredUser>; updated: number; aliased: number } {
   const next = { ...users };
   let updated = 0;
+  for (const alias of plan.aliases) {
+    const user = next[alias.chatUserId];
+    const canonical = next[alias.canonical];
+    if (!(user && canonical)) {
+      continue;
+    }
+    next[alias.chatUserId] = { ...user, aliasOf: alias.canonical };
+    // Keep whichever address the merged record carried.
+    if (!canonical.email && user.email) {
+      next[alias.canonical] = { ...canonical, email: user.email };
+    }
+  }
   for (const recovered of plan.recovered) {
     const user = next[recovered.chatUserId];
     if (!needsName(user)) {
@@ -394,5 +502,5 @@ export function applyRecovery(
     };
     updated += 1;
   }
-  return { users: next, updated };
+  return { users: next, updated, aliased: plan.aliases.length };
 }

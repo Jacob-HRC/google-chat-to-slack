@@ -450,9 +450,23 @@ Two traps found by running it:
   are now kept verbatim.
 
 Email matching only accepts an unambiguous join: a full-name address, or a
-first-name address when exactly one recovered person has that first name.
-`reviewWarnings()` surfaces a name claimed by two accounts, and an address that
-spells an alternate name (a marriage, usually), for a person to decide.
+first-name address when exactly one recovered person has that first name. This
+guard earned its keep: `jenny@hrc.email` belongs to a different, active Jenny,
+and was correctly left alone. When the address spells an alternate name, that
+spelling is promoted, since it is the person's current one.
+
+### One person, one record
+
+`planAliases()` finds records that are the same human twice. A Vault import
+keys people it cannot match by email, while the API knows them by user id; once
+an email is recovered for the API record, the two provably describe one person
+and the email-keyed one is retired. On the real store this merged 10 people.
+A manual alias file covers the other case, someone offboarded and re-onboarded
+with a second account.
+
+Merged records carry `aliasOf`. `buildUsers()` skips them and then points every
+merged id at the surviving person's Slack user, so one human never becomes two
+Slack accounts. `resolveAlias()` follows chains and is cycle-safe.
 
 ## Research notes: Vault
 

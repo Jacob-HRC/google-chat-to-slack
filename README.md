@@ -362,10 +362,25 @@ is unambiguous: a full-name address such as `jenny.fuksa@` matches outright, a
 first-name address such as `james@` only when exactly one recovered person has
 that first name.
 
+When an address spells one of the alternate names, that spelling is promoted:
+`jenny.fuksa@` means the person is now Jenny Fuksa, and Jenny Munoz is kept as
+the former name.
+
+**One person, one Slack account.** Someone can appear twice in the store: once
+by Chat user id from the API, once by email from Vault. Those are merged
+automatically once an email is recovered. For a person who genuinely had two
+accounts, pass `--aliases` with a file merging them by hand:
+
+```json
+{ "users/<old account>": "users/<account to keep>" }
+```
+
+Merged records get an `aliasOf` pointer; the Slack archive then emits one user
+and maps every id through to it.
+
 Nothing is overwritten. Only placeholders are touched, never a name the
 Directory supplied, and an email already in the store wins over a matched one.
-The report flags a name claimed by two accounts and an address that spells an
-alternate name, so those get a human decision instead of a guess.
+Anyone who cannot be named is identified by their email address instead.
 
 ### Fold a Vault export into the store
 

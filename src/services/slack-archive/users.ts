@@ -25,6 +25,10 @@ export interface BuildUsersOptions {
 
 export interface BuiltUsers {
   users: SlackExportUser[];
+  /**
+   * Every chat user id, including ones merged away, maps to the Slack user of
+   * the person they actually are. One human is never two Slack accounts.
+   */
   byChatId: Map<string, ArchiveUserMapping>;
 }
 
@@ -65,9 +69,16 @@ export function buildUsers(
   const sorted = [...people].sort((a, b) =>
     a.chatUserId.localeCompare(b.chatUserId)
   );
+  const byId = new Map(people.map((person) => [person.chatUserId, person]));
+  const merged: [string, string][] = [];
 
   for (const person of sorted) {
     if (person.status === 'group') {
+      continue;
+    }
+    if (person.aliasOf) {
+      // The same human under another record; resolved once everyone is built.
+      merged.push([person.chatUserId, person.aliasOf]);
       continue;
     }
     const override = options.overrides[person.chatUserId] ?? {};
@@ -105,5 +116,22 @@ export function buildUsers(
     });
   }
 
+  // Point every merged record at the surviving person's Slack user.
+  for (const [chatUserId, aliasOf] of merged) {
+    let target = aliasOf;
+    const seen = new Set<string>([chatUserId]);
+    while (!(byChatId.has(target) || seen.has(target))) {
+      seen.add(target);
+      const next = byId.get(target)?.aliasOf;
+      if (!next) {
+        break;
+      }
+      target = next;
+    }
+    const mapping = byChatId.get(target);
+    if (mapping) {
+      byChatId.set(chatUserId, mapping);
+    }
+  }
   return { users, byChatId };
 }
