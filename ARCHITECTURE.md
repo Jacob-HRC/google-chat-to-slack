@@ -427,6 +427,33 @@ node --max-old-space-size=6144 -r ts-node/register/transpile-only \
   bin/googletoslack.ts import-vault --mbox <path> --dry-run
 ```
 
+## Name recovery (`recover-names`)
+
+`src/services/name-recovery.ts` is pure and gives deleted accounts their names
+back. Measured against the real store: of 50 placeholders, 26 are named and 10
+of those also gain an email.
+
+Evidence is weighted, not taken first-wins, because scraped mention spans are
+occasionally shifted by a character (`avannah Emert I` alongside
+`Savannah Emert`). `sender.displayName` carries weight 5, a mention span
+weight 1, and the winner is chosen by total weight with the rest kept as
+alternates. Confidence is `high` when Google's own field supplied the name or
+the winner doubles the runner-up, otherwise `medium`.
+
+Two traps found by running it:
+
+- Google's display name for a deleted account is the literal string
+  `Deleted User`, which outweighed every real name until it was rejected via
+  the shared `isGenericDisplayName()`.
+- External people are identified by address alone, and the name cleaner turned
+  `amarabrock22@gmail.com` into `amarabrock22 gmail com`. Email-shaped values
+  are now kept verbatim.
+
+Email matching only accepts an unambiguous join: a full-name address, or a
+first-name address when exactly one recovered person has that first name.
+`reviewWarnings()` surfaces a name claimed by two accounts, and an address that
+spells an alternate name (a marriage, usually), for a person to decide.
+
 ## Research notes: Vault
 
 - Vault UI cannot reach these spaces: "To select spaces and group

@@ -339,6 +339,34 @@ Google's live listing, plus attachment records that are pending, failed,
 missing on disk or whose hash changed. Exit code 1 means something needs
 attention.
 
+### Recover names for deleted accounts
+
+```bash
+googletoslack recover-names                  # report only
+googletoslack recover-names --apply          # write the names in
+googletoslack recover-names --json plan.json # save the plan for review
+```
+
+The Directory API knows nothing about a deleted account, so those senders start
+out as `Former user 297491`. Three sources still carry their identity:
+
+| Source | What it gives |
+| --- | --- |
+| `sender.displayName` on stored messages | Google's own label, when populated |
+| `USER_MENTION` annotations | the `@Name` span inside the plain text of any message that mentioned them |
+| Google Vault participant addresses | an email, joined back by the shape of the address |
+
+Google substitutes the literal string "Deleted User" for these people, so that
+label is rejected rather than used. An address is only attached when the match
+is unambiguous: a full-name address such as `jenny.fuksa@` matches outright, a
+first-name address such as `james@` only when exactly one recovered person has
+that first name.
+
+Nothing is overwritten. Only placeholders are touched, never a name the
+Directory supplied, and an email already in the store wins over a matched one.
+The report flags a name claimed by two accounts and an address that spells an
+alternate name, so those get a human decision instead of a guess.
+
 ### Fold a Vault export into the store
 
 ```bash

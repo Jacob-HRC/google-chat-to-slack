@@ -8,6 +8,7 @@ import { importVaultCommand } from './commands/import-vault';
 import { loginCommand } from './commands/login';
 import { logoutCommand } from './commands/logout';
 import { migrateCommand } from './commands/migrate';
+import { recoverNamesCommand } from './commands/recover-names';
 import { transformCommand } from './commands/transform';
 import { usersCommand } from './commands/users';
 import { vaultCommand } from './commands/vault';
@@ -27,6 +28,7 @@ export function getParser() {
   parser.command(verifyCommand);
   parser.command(vaultCommand);
   parser.command(importVaultCommand);
+  parser.command(recoverNamesCommand);
   parser.command(buildSlackArchiveCommand);
 
   return parser;
