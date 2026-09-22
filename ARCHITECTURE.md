@@ -371,6 +371,62 @@ A Vault-sourced conversation can therefore be imported as readable history
 with real senders and files, but not with threading, reactions, or exact
 timestamps. Parsing it means HTML scraping plus MIME extraction, not JSON.
 
+## Vault import (`import-vault`)
+
+`src/services/vault-import/` folds a Vault Chat export into the same store the
+Chat API writes, so the Slack archive builder needs no special case beyond a
+provenance label.
+
+| Module | Responsibility |
+| --- | --- |
+| `mbox.ts` | Streams documents out of the multi-gigabyte mbox in 4 MB chunks, splitting on `From <spaceId>-MBI-FLAT:…`. Keeps at most one document in memory. |
+| `mime.ts` | Focused MIME reader: finds the header block by index rather than splitting the document, then decodes the HTML part and base64 attachments. |
+| `html.ts` | Depth-aware reader for Vault's rendered conversation HTML. |
+| `metadata.ts` | XML sidecar: `RoomID`, `RoomName`, `ConversationType`, `Participants`. |
+| `importer.ts` | Merges into the store with the Chat API taking precedence. |
+
+### What the HTML gives back
+
+Each message is a `div[data-id]` holding the sender's email, a
+second-precision timestamp, the text, and trailing blocks for filenames or link
+previews. Threaded messages insert a leading `N Replies` marker ahead of the
+header, which is the only trace of threading Vault keeps: the count survives,
+not which messages the replies were. The header is therefore located by looking
+for the child that parses as a timestamp, not by position.
+
+Trailing blocks that match a MIME part filename become attachments; the rest
+are quoted or preview text and are folded into the message body so nothing is
+dropped. App-relayed posts (`* Via User(Name) *`) keep that attribution.
+
+### Chat API precedence
+
+Jacob's requirement is full-fidelity data first and no duplicates. Three
+guards enforce it:
+
+1. Spaces already holding `chat-api` messages are skipped before their
+   documents are parsed, so no work or disk is spent on them.
+2. Within a space, a message id already present is never replaced.
+3. `mergeMessages` keys on `messageIdentity()`, which collapses the API's
+   `abc.abc` and Vault's bare `abc` to one key. When the API later returns a
+   message that Vault supplied, the API record supersedes it rather than
+   sitting beside it or being logged as an edit.
+
+Every record carries `source: 'chat-api' | 'vault'`; absent means `chat-api`
+for records written before sources were tracked.
+
+### Memory
+
+Two faults surfaced only against the real 2.4 GB export, both fixed:
+splitting whole 200 MB documents into lines to read a few headers, and
+buffering attachment bodies until the end rather than writing each one as its
+document is parsed. The largest document is 200 MB, so the import still wants
+a raised heap:
+
+```bash
+node --max-old-space-size=6144 -r ts-node/register/transpile-only \
+  bin/googletoslack.ts import-vault --mbox <path> --dry-run
+```
+
 ## Research notes: Vault
 
 - Vault UI cannot reach these spaces: "To select spaces and group

@@ -54,6 +54,8 @@ export interface BuildArchiveOptions {
   overrides: Record<string, UserOverride>;
   firstSeenAfterRun?: string;
   messagesSince?: string;
+  /** Prefix for channels recovered from Google Vault. Empty for none. */
+  vaultPrefix?: string;
 }
 
 interface LoadedSpace {
@@ -246,6 +248,7 @@ export async function buildArchiveModel(
     spaceVisibility: options.spaceVisibility,
     skipBotDms: options.skipBotDms,
     usedNames: new Set(),
+    vaultPrefix: options.vaultPrefix,
   };
   const uploads: FileUploadTask[] = model.uploads;
   const fileCounts = { hosted: 0, linkOnly: 0, unavailable: 0 };

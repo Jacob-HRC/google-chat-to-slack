@@ -24,6 +24,25 @@ export interface ConversationOptions {
   spaceVisibility: SpaceVisibility;
   skipBotDms: boolean;
   usedNames: Set<string>;
+  /** Prefix for channels recovered from Google Vault. Empty for none. */
+  vaultPrefix?: string;
+}
+
+/**
+ * Said plainly in the channel purpose so nobody mistakes a Vault-recovered
+ * conversation for a full-fidelity one.
+ */
+export const VAULT_PROVENANCE =
+  'Recovered from Google Vault after every member left the original Google Chat space. Threads, reactions, edits and exact times could not be recovered; timestamps are accurate to the second.';
+
+function withProvenance(
+  space: StoredSpace,
+  purpose: string | undefined
+): string | undefined {
+  if (space.source !== 'vault') {
+    return purpose;
+  }
+  return purpose ? `${purpose} — ${VAULT_PROVENANCE}` : VAULT_PROVENANCE;
 }
 
 export interface ConversationInput {
@@ -108,7 +127,10 @@ function base(
     members: members.map((m) => m.mapping.slackId),
     creator: creatorOf(input, members),
     created: createdAt(input),
-    purpose: input.space.raw.spaceDetails?.description ?? undefined,
+    purpose: withProvenance(
+      input.space,
+      input.space.raw.spaceDetails?.description ?? undefined
+    ),
     topic: input.space.raw.spaceDetails?.guidelines ?? undefined,
   };
 }
@@ -119,9 +141,11 @@ function planNamedSpace(
   members: Array<{ chatUserId: string; mapping: ArchiveUserMapping }>
 ): ConversationPlan {
   const kind = options.spaceVisibility === 'public' ? 'channel' : 'group';
+  const prefix =
+    input.space.source === 'vault' ? (options.vaultPrefix ?? '') : '';
   const name = uniqueName(
     normalizeChannelName(
-      input.space.displayName,
+      `${prefix}${input.space.displayName}`,
       `space-${input.space.spaceId.toLowerCase()}`
     ),
     options.usedNames

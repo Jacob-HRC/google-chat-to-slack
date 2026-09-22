@@ -2,7 +2,9 @@ import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { mergeSpace } from '../../services/export-store';
 import { buildArchiveModel } from '../../services/slack-archive/builder';
+import { planConversation } from '../../services/slack-archive/conversations';
 import {
   mpimName,
   normalizeChannelName,
@@ -25,7 +27,13 @@ import type {
   ArchiveModel,
   SlackExportMessage,
 } from '../../types/slack-export';
-import { USER_ADMIN, USER_FORMER, USER_PASTOR } from '../fixtures/chat-api';
+import {
+  MEMBERSHIPS_GENERAL,
+  SPACE_GENERAL,
+  USER_ADMIN,
+  USER_FORMER,
+  USER_PASTOR,
+} from '../fixtures/chat-api';
 import {
   createFixtureStore,
   FIXTURE_USERS,
@@ -148,6 +156,76 @@ describe('users', () => {
       profile: { email: 'fran@old.example.com' },
     });
     expect(users.find((u) => u.is_bot)?.deleted).toBe(true);
+  });
+});
+
+describe('Vault-recovered spaces', () => {
+  const vaultSpace = {
+    ...mergeSpace(undefined, {
+      raw: SPACE_GENERAL,
+      readers: [],
+      readerSubject: 'google-vault',
+      memberships: MEMBERSHIPS_GENERAL,
+      runId: 'vault-run',
+      now: '2026-09-01T00:00:00.000Z',
+    }),
+    source: 'vault' as const,
+  };
+  const users = new Map([
+    [
+      USER_PASTOR,
+      {
+        slackId: 'U1',
+        name: 'Pat Pastor',
+        status: 'active',
+        placeholder: false,
+        deleted: false,
+      },
+    ],
+  ]);
+
+  it('states the reduced fidelity in the channel purpose', () => {
+    const plan = planConversation(
+      { space: vaultSpace, messages: [], users },
+      { spaceVisibility: 'private', skipBotDms: true, usedNames: new Set() }
+    );
+    expect(plan.purpose).toContain('Recovered from Google Vault');
+    expect(plan.purpose).toContain('Threads, reactions, edits and exact times');
+    // The space's own description is kept alongside the note.
+    expect(plan.purpose).toContain('Church-wide announcements');
+  });
+
+  it('leaves an API-sourced space unlabelled', () => {
+    const apiSpace = { ...vaultSpace, source: undefined };
+    const plan = planConversation(
+      { space: apiSpace, messages: [], users },
+      { spaceVisibility: 'private', skipBotDms: true, usedNames: new Set() }
+    );
+    expect(plan.purpose).toBe('Church-wide announcements');
+  });
+
+  it('applies the optional prefix only to Vault channels', () => {
+    const plan = planConversation(
+      { space: vaultSpace, messages: [], users },
+      {
+        spaceVisibility: 'private',
+        skipBotDms: true,
+        usedNames: new Set(),
+        vaultPrefix: 'archive-',
+      }
+    );
+    expect(plan.name).toBe('archive-general');
+
+    const apiPlan = planConversation(
+      { space: { ...vaultSpace, source: undefined }, messages: [], users },
+      {
+        spaceVisibility: 'private',
+        skipBotDms: true,
+        usedNames: new Set(),
+        vaultPrefix: 'archive-',
+      }
+    );
+    expect(apiPlan.name).toBe('general');
   });
 });
 

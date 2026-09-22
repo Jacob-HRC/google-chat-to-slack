@@ -37,6 +37,7 @@ type BuildArgs = {
   firstSeenAfter?: string;
   messagesSince?: string;
   teamId?: string;
+  vaultPrefix?: string;
 };
 
 async function toBuildOptions(argv: BuildArgs): Promise<BuildArchiveOptions> {
@@ -63,6 +64,7 @@ async function toBuildOptions(argv: BuildArgs): Promise<BuildArchiveOptions> {
     overrides,
     firstSeenAfterRun: argv.firstSeenAfter,
     messagesSince: argv.messagesSince,
+    vaultPrefix: argv.vaultPrefix,
   };
 }
 
@@ -167,6 +169,12 @@ export const buildSlackArchiveCommand: CommandModule<object, BuildArgs> = {
         describe:
           'Delta archive: only messages created after this RFC 3339 time.',
         type: 'string',
+      })
+      .option('vault-prefix', {
+        describe:
+          'Prefix for channels recovered from Google Vault, e.g. "archive-". Their lower fidelity is noted in the channel purpose either way.',
+        type: 'string',
+        default: '',
       })
       .option('team-id', {
         describe: 'Team id written into users.json.',

@@ -339,6 +339,36 @@ Google's live listing, plus attachment records that are pending, failed,
 missing on disk or whose hash changed. Exit code 1 means something needs
 attention.
 
+### Fold a Vault export into the store
+
+```bash
+# Parse and report without writing
+googletoslack import-vault --mbox data/vault-exports/.../chat-orphan-spaces_0.mbox --dry-run
+
+# Merge it in
+googletoslack import-vault --mbox data/vault-exports/.../chat-orphan-spaces_0.mbox
+```
+
+Vault renders conversations as HTML rather than exporting data, so this
+recovers message id, sender email, second-precision timestamp, text,
+attachments and a reply count. Threads, reactions, edits and sub-second
+timestamps are not in the export to recover.
+
+**The Chat API always wins.** Spaces it already covers are skipped, a message
+it already provided is never replaced, and if the API later returns a message
+Vault had supplied, the API copy supersedes it. Nothing is duplicated. Every
+record is tagged with its source.
+
+The largest documents run to 200 MB, so raise the heap for a full export:
+
+```bash
+node --max-old-space-size=6144 -r ts-node/register/transpile-only \
+  bin/googletoslack.ts import-vault --mbox <path>
+```
+
+In the Slack archive, Vault-recovered channels say so in their purpose.
+`--vault-prefix archive-` also renames them if you want them visually separate.
+
 ### Build the Slack import archive
 
 ```bash
