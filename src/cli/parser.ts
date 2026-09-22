@@ -9,6 +9,7 @@ import { logoutCommand } from './commands/logout';
 import { migrateCommand } from './commands/migrate';
 import { transformCommand } from './commands/transform';
 import { usersCommand } from './commands/users';
+import { vaultCommand } from './commands/vault';
 import { verifyCommand } from './commands/verify';
 
 export function getParser() {
@@ -23,6 +24,7 @@ export function getParser() {
   parser.command(usersCommand);
   parser.command(exportWorkspaceCommand);
   parser.command(verifyCommand);
+  parser.command(vaultCommand);
   parser.command(buildSlackArchiveCommand);
 
   return parser;

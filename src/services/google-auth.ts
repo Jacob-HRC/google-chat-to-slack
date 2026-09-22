@@ -30,6 +30,18 @@ export const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/chat.admin.memberships.readonly',
 ] as const;
 
+/**
+ * Vault (eDiscovery) scope, kept separate from GOOGLE_SCOPES on purpose.
+ *
+ * A JWT only receives a token if every requested scope is authorized for the
+ * service account in the Admin console. Folding this into the main list would
+ * make every Chat and Drive call fail the moment the Vault scope is missing,
+ * so Vault gets its own client and its own failure mode.
+ */
+export const VAULT_SCOPES = [
+  'https://www.googleapis.com/auth/ediscovery',
+] as const;
+
 export const GOOGLE_AUTH_MODES = {
   OAUTH: 'oauth',
   SERVICE_ACCOUNT: 'service-account',
@@ -242,14 +254,40 @@ async function getOAuthClientWithRefreshToken(): Promise<OAuth2Client> {
 
 function createJwtClient(
   credentials: ServiceAccountCredentials,
-  subject: string
+  subject: string,
+  scopes: readonly string[]
 ): JWT {
   return new JWT({
     email: credentials.key.client_email,
     key: credentials.key.private_key,
-    scopes: [...GOOGLE_SCOPES],
+    scopes: [...scopes],
     subject,
   });
+}
+
+/**
+ * Service-account client for an explicit scope set. Clients are cached per
+ * subject and scope list so tokens are reused. Service-account auth only;
+ * an OAuth token carries the scopes it was granted at login.
+ */
+export async function getScopedAuthClient(
+  scopes: readonly string[],
+  subject?: string
+): Promise<JWT> {
+  const credentials = await getServiceAccountCredentials();
+  if (!credentials) {
+    throw new Error(
+      'This feature requires service account auth with domain-wide delegation. Run "login google --service-account <key.json> --subject <admin@domain>".'
+    );
+  }
+  const effectiveSubject = (subject ?? credentials.subject).toLowerCase();
+  const cacheKey = `${effectiveSubject}|${[...scopes].sort().join(' ')}`;
+  let client = jwtClients.get(cacheKey);
+  if (!client) {
+    client = createJwtClient(credentials, effectiveSubject, scopes);
+    jwtClients.set(cacheKey, client);
+  }
+  return client;
 }
 
 /**
@@ -266,17 +304,7 @@ export async function getGoogleAuthClient(
   const mode = await getGoogleAuthMode();
 
   if (mode === GOOGLE_AUTH_MODES.SERVICE_ACCOUNT) {
-    const credentials = await getServiceAccountCredentials();
-    if (!credentials) {
-      throw new Error('Service account credentials are not available.');
-    }
-    const effectiveSubject = (subject ?? credentials.subject).toLowerCase();
-    let client = jwtClients.get(effectiveSubject);
-    if (!client) {
-      client = createJwtClient(credentials, effectiveSubject);
-      jwtClients.set(effectiveSubject, client);
-    }
-    return client;
+    return await getScopedAuthClient(GOOGLE_SCOPES, subject);
   }
 
   if (subject) {

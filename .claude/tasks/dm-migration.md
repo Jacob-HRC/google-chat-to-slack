@@ -118,3 +118,30 @@ Design decisions:
 - Output: ZIP (yazl) plus `--unpacked <dir>`, and `archive-manifest.json`
   mapping Google ids → Slack ids/names/files for Phase 4 verify.
 - `--dry-run` prints the same report without writing.
+
+## Google Vault path (2026-09-22)
+
+Reason: 96 named Spaces have zero members left, so the Chat API cannot reach
+them. Vault's ROOM search takes space ids directly.
+
+Done:
+- `src/services/vault.ts` + `vault <probe|export|status|matters>` command.
+- `getScopedAuthClient()` in google-auth.ts gives Vault its own JWT scope set,
+  so an unauthorized Vault scope cannot break Chat/Drive auth.
+- Live-verified as jacob@hrc.email: the ediscovery scope works, matters list
+  returns 3 pre-existing matters (Test, HVAC Research, Heather Offboarding —
+  do not touch).
+
+Findings:
+- `matters.count` rejects Chat: "Corpus type HANGOUTS_CHAT is not supported."
+  Matches the schema (no hangoutsChatCountResult). Export is the only probe.
+- A single-space MBOX export was accepted and ran IN_PROGRESS. Matter for
+  migration probing: 94616089-048b-4a83-814e-c01538fe2fec ("Chat migration
+  probe"), space AAAAA6HZ1qY (dept-it-internal-chat).
+
+Open:
+- Wait for that export to reach COMPLETED and inspect the MBOX/XML/CSV shape.
+- Downloading from Cloud Storage needs the devstorage.read_only scope, not yet
+  requested. The Vault console download works without it.
+- No MBOX parser exists. Deciding whether to write one depends on whether the
+  96 spaces hold anything worth migrating, which the first export will show.

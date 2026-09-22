@@ -393,6 +393,39 @@ downloaded Drive copies get both the copy and the original link.
 a workspace that already received the first one. A second import cannot apply
 edits or deletions.
 
+### Recover spaces with no remaining members (Google Vault)
+
+The Chat API can only reach a space through one of its members. When every
+member of a Space has been deleted, the messages still exist in Google's
+retained copy but no account can be impersonated to read them. Vault's `ROOM`
+search addresses spaces by id instead, which is the only documented way in.
+
+```bash
+googletoslack vault matters                    # list Vault matters (read-only)
+googletoslack vault probe                      # report the member-less spaces and open a matter
+googletoslack vault export --matter <matterId> # start MBOX exports for them
+googletoslack vault status --matter <matterId> # check progress
+```
+
+Requirements:
+
+- A Workspace edition that includes Vault (Business Plus, Enterprise Standard
+  or Plus, Education Plus).
+- The scope `https://www.googleapis.com/auth/ediscovery` added to the service
+  account's domain-wide delegation entry. It is kept out of the main scope list
+  on purpose: a JWT is refused outright if any requested scope is unauthorized,
+  so folding Vault in would break every Chat and Drive call the moment the
+  Vault scope was missing.
+- The impersonated user needs Vault privileges in the Admin console.
+
+The space list comes from the admin sweep in `export-workspace`, read from
+`unreachable-spaces.json` or, if that is absent, from the newest run report.
+
+Vault exports arrive as MBOX or PST with XML and CSV metadata, which is a
+different shape from the Chat API. Folding them into the workspace store needs
+a parser that does not exist yet, so today this path produces the export for
+manual review rather than Slack-ready data.
+
 #### Export
 
 ```bash

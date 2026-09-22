@@ -317,7 +317,47 @@ writing the ZIP (`yazl`).
 | `builder.ts` | Loads the store, collects referenced people, runs the above, fills `archive-manifest.json`. |
 | `writer.ts` | Stable entry order, ZIP + unpacked output, console report. |
 
-### Research notes: Slack import
+### Google Vault path (member-less spaces)
+
+`src/services/vault.ts` plus the `vault` command reach Spaces that the Chat
+API cannot return because every member has been deleted. Vault's `ROOM` search
+method takes space ids directly.
+
+Auth is deliberately separate. `getScopedAuthClient(scopes, subject)` mints a
+JWT for an explicit scope set and caches it per subject and scope list, so the
+Vault scope lives in `VAULT_SCOPES` rather than `GOOGLE_SCOPES`. A JWT is
+refused entirely if any requested scope is unauthorized, so a missing Vault
+grant must not be able to break Chat and Drive access.
+
+### Research notes: Vault
+
+- Vault UI cannot reach these spaces: "To select spaces and group
+  conversations, you enter the account of a member of the space. You can't
+  search across all spaces."
+  (knowledge.workspace.google.com/vault/search/use-vault-to-search-google-chat)
+- The API can: `searchMethod: ROOM` is "Search messages in the Chat spaces
+  specified in HangoutsChatInfo", and `HangoutsChatInfo.roomId` is "A list of
+  Chat spaces IDs, as provided by the Chat API. There is a limit of exporting
+  from 500 Chat spaces per request."
+  (developers.google.com/workspace/vault/reference/rest/v1/Query)
+- **Counting Chat is not supported.** `CountArtifactsResponse` carries only
+  `mailCountResult` and `groupsCountResult`, and a live `matters.count` with
+  `corpus: HANGOUTS_CHAT` returns "Corpus type HANGOUTS_CHAT is not
+  supported." Verified against the API on 2026-09-22. Export is the only way
+  to learn what Vault holds for a space.
+- Export format is MBOX or PST plus XML and CSV metadata. The Chat metadata
+  carries "RoomID–Space, group chat, or DM identifier that the message belongs
+  to", Participants, ConversationType ("Room", "1:1 Direct Message", "Group
+  Direct Message"), space name, and "when the sender edited or deleted a
+  message". Exports include "Messages and their attachments".
+  (knowledge.workspace.google.com/vault/exports/vault-export-contents)
+- Vault ships with Business Plus, Enterprise Standard and Plus, and Education
+  Plus. HighRidge is on Enterprise.
+- Retention caveat: Vault "can retain messages only in spaces (including
+  meeting conversations) that have history turned on". All 96 member-less
+  Spaces here have history on.
+
+## Research notes: Slack import
 
 - Export layout and message fields: developers.google.com is not involved;
   see slack.com/help/articles/220556107 ("How to read Slack data exports").
