@@ -42,6 +42,15 @@ const configSchema = z.object({
   GOOGLE_SERVICE_ACCOUNT_KEY: optionalString,
   // Workspace admin to impersonate for Directory API calls.
   GOOGLE_ADMIN_SUBJECT: optionalString,
+  // Force a mode instead of preferring the service account when both exist.
+  GOOGLE_AUTH_MODE: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z.enum(['oauth', 'service-account']).optional()
+  ),
+  // Pilot filters for multi-user export: comma-separated emails and/or an
+  // org unit path such as /Staff. CLI flags override these.
+  GOOGLE_EXPORT_USERS: optionalString,
+  GOOGLE_EXPORT_ORG_UNIT: optionalString,
   SLACK_BOT_TOKEN: optionalString,
 });
 

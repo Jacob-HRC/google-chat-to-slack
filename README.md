@@ -58,6 +58,9 @@ googletoslack import
 - Environment variables:
   - `GOOGLE_CLIENT_ID`
   - `GOOGLE_CLIENT_SECRET`
+- Or, for a whole-workspace export, a service account with domain-wide
+  delegation (see "Service account auth" below) and the extra scope
+  `chat.memberships.readonly`
 
 **Slack Requirements:**
 
@@ -102,6 +105,64 @@ googletoslack import
    - Enter a name for your OAuth client
    - Click "Create" to get your `client_id` and `client_secret`
    - Copy both values for environment variable setup
+
+#### Service account auth (whole workspace, domain-wide delegation)
+
+The OAuth flow above only sees spaces that one user belongs to. To export
+every user's Spaces, group chats and DMs, use a service account with
+domain-wide delegation. The tool impersonates each user in turn to read their
+conversations, and impersonates one Workspace admin to list users.
+
+1. **Create the service account** in your Google Cloud project:
+   - Enable the Google Chat API, Admin SDK API and Google Drive API (links above).
+   - Go to IAM & Admin > Service Accounts > Create service account. No project roles are needed.
+   - Open the account > Keys > Add key > Create new key > JSON. Keep the file private; it is never stored in this repo.
+   - Open the account > Show advanced settings > Domain-wide delegation, and copy the **Client ID** (a long number).
+
+2. **Authorize the scopes** in the Google Admin console:
+   - Go to Security > Access and data control > API controls > Manage Domain Wide Delegation > Add new.
+   - Paste the Client ID and enter these scopes, comma separated, exactly:
+
+     ```
+     https://www.googleapis.com/auth/chat.spaces.readonly,
+     https://www.googleapis.com/auth/chat.messages.readonly,
+     https://www.googleapis.com/auth/chat.memberships.readonly,
+     https://www.googleapis.com/auth/drive.readonly,
+     https://www.googleapis.com/auth/admin.directory.user.readonly
+     ```
+
+   - Click Authorize. Google says changes can take up to 24 hours but usually apply within minutes.
+
+3. **Store the key and verify** (the key goes into the OS keyring, the subject is the admin to impersonate for Directory calls):
+
+   ```bash
+   googletoslack login google --service-account ./service-account.json --subject admin@example.com
+   ```
+
+   The command checks the Directory API as the admin and the Chat API as the
+   same user, and explains the usual delegation failures (`unauthorized_client`
+   means the scopes or Client ID in the Admin console do not match;
+   `invalid_grant` means the subject email is wrong or suspended).
+
+   Environment variables work too, for CI or headless machines without a
+   keyring: `GOOGLE_SERVICE_ACCOUNT_KEY_FILE` (or `GOOGLE_SERVICE_ACCOUNT_KEY`
+   with the JSON inline) plus `GOOGLE_ADMIN_SUBJECT`. When both a service
+   account and an OAuth token exist the service account wins; set
+   `GOOGLE_AUTH_MODE=oauth` to force the single-user flow.
+
+4. **Check which users are in scope**:
+
+   ```bash
+   googletoslack users                                   # every active user
+   googletoslack users --org-unit /Staff                 # one org unit and its children
+   googletoslack users --user a@example.com --user b@example.com
+   googletoslack users --include-suspended --json
+   ```
+
+   The same restrictions can live in config as `GOOGLE_EXPORT_USERS`
+   (comma separated) and `GOOGLE_EXPORT_ORG_UNIT`; flags override them. These
+   filters are what the multi-user export uses to pick whose conversations to
+   read, which keeps pilot runs small.
 
 #### Slack App Setup
 
@@ -171,7 +232,13 @@ googletoslack login google
 # Login to Slack (interactive bot token setup)
 googletoslack login slack
 
-# Logout from services
+# Login with a delegated service account (whole workspace)
+googletoslack login google --service-account ./key.json --subject admin@example.com
+
+# List the Workspace users an export would cover
+googletoslack users --org-unit /Staff
+
+# Logout from services (removes OAuth token and stored service account)
 googletoslack logout google
 googletoslack logout slack
 ```

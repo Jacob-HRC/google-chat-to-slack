@@ -3,12 +3,9 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import https from 'node:https';
 import path from 'node:path';
-import url, { URL } from 'node:url';
+import { URL } from 'node:url';
 import type { GaxiosError, GaxiosResponse } from 'gaxios';
-import { OAuth2Client } from 'google-auth-library';
 import { type chat_v1, google } from 'googleapis';
-import open from 'open';
-import { requireGoogleOAuthConfig } from '../config';
 import type {
   ExportData,
   GoogleAttachment,
@@ -22,91 +19,15 @@ import {
   withGoogleChatRateLimit,
   withGoogleDirectoryRateLimit,
 } from '../utils/rate-limiting';
-import { getToken, setToken } from '../utils/token-manager';
 import { userCache } from '../utils/user-cache';
+import { getGoogleAuthClient } from './google-auth';
 
-const REDIRECT_URI = 'http://localhost:3000';
+export { loginToGoogle } from './google-auth';
+
 const USERS_PREFIX_REGEX = /^users\//;
 
-const SCOPES = [
-  'https://www.googleapis.com/auth/chat.spaces.readonly',
-  'https://www.googleapis.com/auth/chat.messages.readonly',
-  'https://www.googleapis.com/auth/drive.readonly',
-  // Directory API for admin access to all user profiles
-  'https://www.googleapis.com/auth/admin.directory.user.readonly',
-];
-
-function getOauth2Client(): OAuth2Client {
-  const { clientId, clientSecret } = requireGoogleOAuthConfig();
-  return new OAuth2Client(clientId, clientSecret, REDIRECT_URI);
-}
-
-function startServerForCodeRedirect(): Promise<string> {
-  return new Promise<string>((resolve, reject) => {
-    const server = http.createServer((req, res) => {
-      const parsedUrl = url.parse(req.url ?? '', true);
-      const authCode = parsedUrl.query.code as string;
-
-      if (authCode) {
-        res.writeHead(200, { 'Content-Type': 'text/plain' });
-        res.end('Authentication successful! You can close this tab.');
-        server.close();
-        resolve(authCode);
-      } else {
-        const error = new Error('No code found in redirect.');
-        res.writeHead(400, { 'Content-Type': 'text/plain' });
-        res.end(error.message);
-        server.close();
-        reject(error);
-      }
-    });
-
-    server.listen(3000, () => {
-      console.log('Listening for redirect on http://localhost:3000');
-    });
-
-    server.on('error', reject);
-  });
-}
-
-export async function loginToGoogle(): Promise<void> {
-  const oAuth2Client = getOauth2Client();
-
-  const authUrl = oAuth2Client.generateAuthUrl({
-    access_type: 'offline',
-    scope: SCOPES,
-  });
-
-  console.log('Authorize this app by visiting this url:', authUrl);
-  open(authUrl);
-
-  const code = await startServerForCodeRedirect();
-
-  const { tokens } = await oAuth2Client.getToken(code);
-  if (tokens.refresh_token) {
-    await setToken('google', tokens.refresh_token);
-    console.log('Successfully logged in to Google.');
-  } else {
-    console.error('Failed to get refresh token.');
-  }
-}
-
-async function getAuthenticatedOauth2Client(): Promise<OAuth2Client> {
-  const oAuth2Client = getOauth2Client();
-  const refreshToken = await getToken('google');
-  if (!refreshToken) {
-    throw new Error('User not authenticated. Please run "login google" first.');
-  }
-  oAuth2Client.setCredentials({ refresh_token: refreshToken });
-
-  const { token: accessToken } = await oAuth2Client.getAccessToken();
-  oAuth2Client.setCredentials({ access_token: accessToken });
-
-  return oAuth2Client;
-}
-
 async function getGoogleChatClient(): Promise<chat_v1.Chat> {
-  const oAuth2Client = await getAuthenticatedOauth2Client();
+  const oAuth2Client = await getGoogleAuthClient();
   return google.chat({
     version: 'v1',
     auth: oAuth2Client,
@@ -124,7 +45,7 @@ async function fetchUserWithDirectoryAPI(
   logger: Logger
 ): Promise<string | undefined> {
   try {
-    const oAuth2Client = await getAuthenticatedOauth2Client();
+    const oAuth2Client = await getGoogleAuthClient();
     const admin = google.admin({ version: 'directory_v1', auth: oAuth2Client });
 
     const userKey = userId.replace(USERS_PREFIX_REGEX, '');
@@ -231,7 +152,7 @@ function downloadAttachment(
   outputPath: string
 ): Promise<void> {
   return withGoogleChatRateLimit(async () => {
-    const oAuth2Client = await getAuthenticatedOauth2Client();
+    const oAuth2Client = await getGoogleAuthClient();
 
     // Use direct HTTP request with proper ?alt=media parameter
     const apiUrl = `https://chat.googleapis.com/v1/media/${resourceName}?alt=media`;
@@ -282,7 +203,7 @@ function downloadGoogleDriveFile(
 ): Promise<void> {
   return withGoogleChatRateLimit(async () => {
     try {
-      const oAuth2Client = await getAuthenticatedOauth2Client();
+      const oAuth2Client = await getGoogleAuthClient();
       const drive = google.drive({ version: 'v3', auth: oAuth2Client });
 
       const res = await drive.files.get(
@@ -459,7 +380,7 @@ async function downloadAuthenticatedUrl(
   outputPath: string
 ): Promise<void> {
   return await withGoogleChatRateLimit(async () => {
-    const oAuth2Client = await getAuthenticatedOauth2Client();
+    const oAuth2Client = await getGoogleAuthClient();
 
     // Get access token for Authorization header
     const { token: accessToken } = await oAuth2Client.getAccessToken();

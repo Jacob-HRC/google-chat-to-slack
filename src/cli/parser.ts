@@ -6,6 +6,7 @@ import { loginCommand } from './commands/login';
 import { logoutCommand } from './commands/logout';
 import { migrateCommand } from './commands/migrate';
 import { transformCommand } from './commands/transform';
+import { usersCommand } from './commands/users';
 
 export function getParser() {
   const parser = yargs(hideBin(process.argv));
@@ -16,6 +17,7 @@ export function getParser() {
   parser.command(exportCommand);
   parser.command(transformCommand);
   parser.command(importCommand);
+  parser.command(usersCommand);
 
   return parser;
 }

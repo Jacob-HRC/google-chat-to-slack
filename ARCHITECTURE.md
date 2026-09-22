@@ -14,7 +14,8 @@ not merged yet.
 
 | Command | Module | What it does |
 | --- | --- | --- |
-| `login google` / `login slack` | `src/cli/commands/login.ts` | Stores credentials in the OS keyring via `src/utils/token-manager.ts`. |
+| `login google [--service-account key.json --subject admin@…]` / `login slack` | `src/cli/commands/login.ts` | Stores credentials in the OS keyring via `src/utils/token-manager.ts`. The service-account form also verifies delegation. |
+| `users [--user …] [--org-unit /X] [--include-suspended] [--json]` | `src/cli/commands/users.ts` | Lists the Workspace users a multi-user export would cover. Service account only. |
 | `logout <provider>` | `src/cli/commands/logout.ts` | Deletes the stored credential. |
 | `export` | `src/cli/commands/export.ts` | Pulls spaces, messages and attachments from Google Chat into `export/`. |
 | `transform` | `src/cli/commands/transform.ts` | Converts `export/export.json` into `import/import.json`. |
@@ -28,11 +29,9 @@ launched from `bin/googletoslack.ts`.
 
 ### `src/services/google-chat.ts` (export)
 
-- **Auth.** One OAuth2 user token. `login google` runs a desktop OAuth flow
-  (local redirect on port 3000), stores the refresh token in the keyring, and
-  every later call mints an access token from it. Scopes requested:
-  `chat.spaces.readonly`, `chat.messages.readonly`, `drive.readonly`,
-  `admin.directory.user.readonly`.
+- **Auth.** Obtained from `google-auth.ts` (see below). Upstream used one
+  OAuth2 user token; that flow still exists and is the default when no
+  service account is configured.
 - **Config.** `src/config/index.ts` loads `.env`, then
   `~/.googletoslack/config` or `~/.config/googletoslack/config`, and parses
   `process.env` with zod. All keys are optional at load time. The OAuth flow
@@ -62,6 +61,45 @@ launched from `bin/googletoslack.ts`.
   `src/utils/rate-limiting/`, a token bucket with exponential backoff.
   `configureForExport(EXPORT_RATE_LIMITS)` tunes the buckets per command.
 - **Dry run.** Limits to one space and one message, skips downloads.
+
+### `src/services/google-auth.ts` (auth modes)
+
+All Google calls obtain their client from `getGoogleAuthClient(subject?)`.
+Two modes exist and `resolveAuthMode()` picks one:
+
+- **OAuth** (upstream behaviour): refresh token in the keyring under the
+  `google` account, one user, no impersonation. `subject` is rejected.
+- **Service account with domain-wide delegation**: a JSON key plus a default
+  subject (the Workspace admin). The key comes from `GOOGLE_SERVICE_ACCOUNT_KEY`,
+  `GOOGLE_SERVICE_ACCOUNT_KEY_FILE`, or the keyring accounts
+  `google-service-account-key` / `google-service-account-subject` written by
+  `login google --service-account`. Each distinct `subject` gets its own cached
+  `JWT` client so tokens are reused across the export.
+
+A configured service account wins over an OAuth token; `GOOGLE_AUTH_MODE`
+forces either. `verifyServiceAccountAccess()` runs one Directory call as the
+admin and one `spaces.list` as the chosen subject and translates the usual
+delegation errors into hints (`describeGoogleError()`).
+
+Scopes are listed once in `GOOGLE_SCOPES` and must match the Admin console
+entry exactly. Compared with upstream the list adds
+`chat.memberships.readonly`, needed to record who is in each DM.
+
+### `src/services/directory.ts` (user enumeration)
+
+`listDomainUsers(selection)` returns `DomainUser[]` (`id`, `email`,
+`fullName`, `suspended`, `archived`, `orgUnitPath`). With an explicit email
+list it calls `users.get` per address and fails loudly on unknown ones;
+otherwise it pages `users.list` with `customer=my_customer` and a query built
+by `buildUserQuery()` (`orgUnitPath=/X isSuspended=false`). `selectUsers()`
+re-applies the selection client-side so both paths agree. The Directory `id`
+is the same number Chat uses in `users/<id>`, which is how later phases map
+senders to emails.
+
+`resolveUserSelection()` merges `--user` / `--org-unit` /
+`--include-suspended` with `GOOGLE_EXPORT_USERS` and `GOOGLE_EXPORT_ORG_UNIT`.
+The `users` command prints the result so a pilot scope can be checked before
+exporting anything.
 
 ### `src/services/transformation.ts` (transform)
 
@@ -204,3 +242,21 @@ guesses. Each item cites where it came from.
   `pageToken` (valid for three days), `showDeleted`, and a `query` string.
   Read scope: `admin.directory.user.readonly`.
   (developers.google.com/workspace/admin/directory/reference/rest/v1/users/list)
+- **Query syntax.** Clauses separated by spaces are ANDed. `orgUnitPath=/X`
+  "matches all org unit chains under the target", so it is a subtree match.
+  `isSuspended=true|false` and `isArchived=true|false` take `=` only.
+  (developers.google.com/workspace/admin/directory/v1/guides/search-users)
+
+### Domain-wide delegation setup
+
+- Cloud console: IAM & Admin > Service Accounts > (account) > Show advanced
+  settings > Domain-wide delegation > copy the **Client ID**.
+- Admin console: Security > Access and data control > API controls > Manage
+  Domain Wide Delegation > Add new > paste the Client ID and a comma-separated
+  scope list > Authorize. "Changes can take up to 24 hours but typically
+  happen more quickly."
+  (developers.google.com/workspace/guides/create-credentials)
+- The Chat authentication guide does not say a Chat app must be configured
+  for user-auth calls made through delegation. If a 403 mentions app
+  configuration, the fallback is to configure a Chat app in the Cloud
+  console's Chat API page; that has not been needed so far.

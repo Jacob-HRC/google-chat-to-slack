@@ -8,7 +8,7 @@ Fork: https://github.com/Jacob-HRC/google-chat-to-slack (upstream markusjura).
 ## Status
 
 - [x] Setup: fork, clone, upstream remote, tests green, ARCHITECTURE.md.
-- [ ] Phase 1: service-account auth (DWD), Directory user enumeration, user/OU filter, scope docs.
+- [x] Phase 1: service-account auth (DWD), Directory user enumeration, user/OU filter, scope docs. Live verification blocked until delegation is granted.
 - [ ] Phase 2: per-user space export, dedupe, membership, suspended users, resume.
 - [ ] Phase 3: Slack export-ZIP writer (channels/groups/users/dms/mpims + per-day files).
 - [ ] Phase 4: import runbook + `verify` command.

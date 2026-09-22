@@ -1,4 +1,5 @@
 import type { CommandModule } from 'yargs';
+import { clearGoogleCredentials } from '../../services/google-auth';
 import { deleteToken } from '../../utils/token-manager';
 
 type LogoutArgs = {
@@ -11,9 +12,10 @@ export const logoutCommand: CommandModule<object, LogoutArgs> = {
   builder: (yargs) =>
     yargs
       .positional('provider', {
-        describe: 'The chat provider to logout from (google-chat, slack)',
+        describe:
+          'The chat provider to logout from (google, google-chat, slack)',
         type: 'string',
-        choices: ['google-chat', 'slack'],
+        choices: ['google', 'google-chat', 'slack'],
         demandOption: true,
       })
       .strict()
@@ -28,8 +30,9 @@ export const logoutCommand: CommandModule<object, LogoutArgs> = {
         process.exit(1);
       }),
   handler: async (argv) => {
-    if (argv.provider === 'google-chat') {
-      await deleteToken('google');
+    if (argv.provider === 'google' || argv.provider === 'google-chat') {
+      // Removes the OAuth refresh token and any stored service account key.
+      await clearGoogleCredentials();
       console.log('Successfully logged out from Google Chat.');
     } else if (argv.provider === 'slack') {
       await deleteToken('slack');
