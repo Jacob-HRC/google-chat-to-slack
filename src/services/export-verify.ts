@@ -206,7 +206,8 @@ async function verifyRecord(
 
 async function verifyAttachments(
   store: ExportStore,
-  options: VerifyOptions
+  options: VerifyOptions,
+  spaceIds: Set<string>
 ): Promise<AttachmentVerifyResult> {
   const index = await loadAttachmentIndex(store);
   const summary: AttachmentVerifyResult = {
@@ -220,12 +221,7 @@ async function verifyAttachments(
     issues: [],
   };
   for (const record of Object.values(index)) {
-    if (
-      options.spaceFilter.length > 0 &&
-      !options.spaceFilter.some(
-        (f) => f === record.spaceId || f === `spaces/${record.spaceId}`
-      )
-    ) {
+    if (!spaceIds.has(record.spaceId)) {
       continue;
     }
     summary.records += 1;
@@ -241,7 +237,11 @@ export async function verifyExportStore(
 ): Promise<VerifyReport> {
   const store = await openStore(options.outputDir);
   const spaces = await verifySpaces(store, options, logger);
-  const attachments = await verifyAttachments(store, options);
+  const attachments = await verifyAttachments(
+    store,
+    options,
+    new Set(spaces.map((s) => s.spaceId))
+  );
   const users = Object.values(await loadUsers(store));
   const report: VerifyReport = {
     checkedAt: new Date().toISOString(),

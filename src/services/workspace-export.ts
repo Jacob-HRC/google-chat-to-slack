@@ -231,19 +231,34 @@ export function collectUserRefs(
   }
 }
 
-/** Human members' names, for DMs and group chats that have no title. */
+/**
+ * Human members' names, for DMs and group chats that have no title. People
+ * who wrote in the conversation but are no longer members (deleted accounts
+ * drop out of the membership list) are included so a DM with a former staff
+ * member is still named after both people.
+ */
 export function deriveSpaceName(
   space: StoredSpace,
-  users: Record<string, StoredUser>
+  users: Record<string, StoredUser>,
+  messages: StoredMessage[] = []
 ): string {
   if (space.spaceType === 'SPACE' && space.displayName) {
     return space.displayName;
   }
-  const names = space.memberships
-    .filter((m) => m.memberType === 'HUMAN' && m.chatUserId)
-    .map((m) =>
-      displayNameOf(users[m.chatUserId as string], m.chatUserId as string)
-    )
+  const ids = new Set<string>();
+  for (const m of space.memberships) {
+    if (m.memberType === 'HUMAN' && m.chatUserId) {
+      ids.add(m.chatUserId);
+    }
+  }
+  for (const message of messages) {
+    if (message.senderId && message.senderType !== 'BOT') {
+      ids.add(message.senderId);
+    }
+  }
+  const names = Array.from(ids)
+    .filter((id) => users[id]?.status !== 'bot')
+    .map((id) => displayNameOf(users[id], id))
     .sort((a, b) => a.localeCompare(b));
   if (names.length === 0) {
     return space.displayName || space.spaceId;
@@ -738,7 +753,7 @@ async function syncSpace(
   state.status = 'complete';
   state.attachmentsPending = pendingAttachmentKeys(ctx, spaceId).length;
   await saveState(store, state);
-  space.derivedDisplayName = deriveSpaceName(space, ctx.users);
+  space.derivedDisplayName = deriveSpaceName(space, ctx.users, merge.messages);
   await saveSpace(store, space);
 
   result.durationMs = Date.now() - started;

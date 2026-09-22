@@ -46,3 +46,12 @@ Fork: https://github.com/Jacob-HRC/google-chat-to-slack (upstream markusjura).
 - Scopes now also include `chat.admin.spaces.readonly` and `chat.admin.memberships.readonly` (admin sweep). Jacob must grant the full list before the pilot.
 - Drive metadata/download calls share the Google Chat token bucket; add a Drive bucket if quota errors appear in the pilot.
 - Phase 3 should read this store, not export.json. Fields ready for Slack: `slackTs`, `threadName`/`threadReply`, `reactions[].user`, `attachmentKeys` → index records with `localPath` and Drive links, `users.json` for users.json/placeholders, `space.memberships` for dms/mpims membership.
+
+## Pilot findings (2026-09-22, Jacob's account only)
+
+- Delegation verified live: Directory as jacob@hrc.email (admin), Chat as the same user. All seven scopes granted. Key lives in 1Password (T3 vault, "Google to Slack Service Account", file attachment) and is stored in the OS keyring on the T3 box; a 0600 copy sits at ~/.config/googletoslack/service-account.json.
+- Dry run over Jacob alone: 463 conversations (75 named Spaces, 295 group chats, 93 DMs), 42,136 messages, 115 people referenced, 51 without a directory record. Domain has 82 active users.
+- Admin sweep fails with "Google Chat app not found": `spaces.search` with admin access needs a Chat app configured on the Chat API page of the Cloud project. Not blocking; the sweep only finds named Spaces nobody selected can read. Ask Jacob to configure a minimal Chat app (any name, no endpoint) when convenient.
+- Membership counts match Google's `membershipCount`; the many single-member named Spaces are old project rooms where Jacob is the last member. Deleted accounts drop out of membership lists, so DM names now also use senders.
+- Four conversations exported for real (two Spaces with files, one group chat, one DM): 206 messages, 61 files hash-verified (uploads and a Docs export), per-user reactions captured, delta re-run is a no-op. Two Drive attachments reference a file Google says no longer exists; they stay `failed` and `verify` keeps reporting them.
+- `--refresh-users` only refreshes people referenced by the spaces in that run.

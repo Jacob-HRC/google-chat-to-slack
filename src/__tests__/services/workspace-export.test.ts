@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mergeSpace } from '../../services/export-store';
+import { mergeMessages, mergeSpace } from '../../services/export-store';
 import {
   chooseReaderSubject,
   collectUserRefs,
@@ -12,6 +12,7 @@ import type { StoredUser } from '../../types/export-store';
 import {
   MEMBERSHIPS_DM,
   MEMBERSHIPS_GENERAL,
+  MSG_FROM_FORMER_USER,
   REACTIONS_MSG002,
   SPACE_BOT_DM,
   SPACE_DM,
@@ -144,5 +145,35 @@ describe('collectUserRefs and deriveSpaceName', () => {
     };
     expect(deriveSpaceName(dm, users)).toBe('Former user 000003, Pat Pastor');
     expect(deriveSpaceName(general, users)).toBe('general');
+  });
+
+  it('includes senders whose membership is gone (deleted accounts)', () => {
+    const soloDm = mergeSpace(undefined, {
+      raw: SPACE_DM,
+      readers: ['pastor@example.com'],
+      readerSubject: 'pastor@example.com',
+      memberships: [MEMBERSHIPS_DM[0]],
+      runId: 'run1',
+      now,
+    });
+    const users: Record<string, StoredUser> = {
+      [USER_PASTOR]: {
+        chatUserId: USER_PASTOR,
+        fullName: 'Pat Pastor',
+        status: 'active',
+        isPlaceholder: false,
+        sources: [],
+        firstSeenRun: 'run1',
+      },
+    };
+    const messages = mergeMessages([], [MSG_FROM_FORMER_USER], 'BBBBdm', {
+      runId: 'run1',
+      now,
+      fetchedIsComplete: true,
+    }).messages;
+    expect(deriveSpaceName(soloDm, users)).toBe('Pat Pastor');
+    expect(deriveSpaceName(soloDm, users, messages)).toBe(
+      'Former user 000003, Pat Pastor'
+    );
   });
 });

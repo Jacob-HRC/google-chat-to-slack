@@ -379,7 +379,9 @@ guesses. Each item cites where it came from.
   scope list > Authorize. "Changes can take up to 24 hours but typically
   happen more quickly."
   (developers.google.com/workspace/guides/create-credentials)
-- The Chat authentication guide does not say a Chat app must be configured
-  for user-auth calls made through delegation. If a 403 mentions app
-  configuration, the fallback is to configure a Chat app in the Cloud
-  console's Chat API page; that has not been needed so far.
+- Observed live: user-auth calls through delegation (`spaces.list`,
+  `members.list`, `messages.list`, media download, Drive) work without a
+  Chat app configured. `spaces.search` with `useAdminAccess` does not: it
+  fails with "Google Chat app not found. To create a Chat app, you must turn
+  on the Chat API and configure the app in the Google Cloud console." The
+  admin sweep is therefore optional until a Chat app is configured.
