@@ -336,3 +336,14 @@ Tasks:
   to keep heavy work off the box until then). It answers the open questions:
   does Slack fetch hosted files, are ts values preserved, what do merged
   members see, and is a re-imported DM de-duplicated.
+
+### Vault deltas (2026-09-23)
+
+`vault delta [--dry-run] [--refresh]` then, once exports complete,
+`vault sync`. See ARCHITECTURE "Vault deltas". The ledger
+`data/vault-exports/imported.json` was seeded by hand with the original
+`chat-orphan-spaces` export (exportly-db5b6df5…), already imported on
+2026-09-22 as run vault-20260922T203043Z, so sync does not re-import 3.3 GB.
+Today's dry run: all 96 spaces up to date, nothing to export or import.
+Run `vault delta` again at cutover: anyone offboarded between now and then
+can orphan more spaces.

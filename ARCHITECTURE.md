@@ -671,3 +671,39 @@ The procedure is in `docs/import-runbook.md`. The pieces:
 - **Scale**: the build streams conversations (two passes) and drops raw
   attachment objects after loading the 180 MB+ attachment index. The full
   build still needs `--max-old-space-size=6144`.
+
+## Vault deltas
+
+`vault delta` exports only what earlier Vault exports in the matter missed,
+and `vault sync` brings finished exports into the store. The matter is the
+record: each export keeps its query (space ids, start time) and creation
+time, so no local bookkeeping decides what to fetch.
+
+Per member-less space (`unreachable-spaces.json`, no members):
+
+- **Never exported** → full history.
+- **Held from the Chat API** (it lost its last member after we synced it) →
+  messages since the last API sync, less `--overlap-hours` (default 48).
+  These are the messages sent between our last sync and the member leaving,
+  which only Vault still has.
+- **Exported before, Vault data only** → skipped. With no members nobody can
+  post, so nothing new can arrive. `--refresh` checks anyway, from the last
+  export time.
+
+Spaces with the same start time share one export. Spaces in an export that
+is still running are left out.
+
+`vault sync` downloads each completed export not in
+`data/vault-exports/imported.json`, writing `.part` files and renaming when
+complete, unpacks the nested ZIPs with `yauzl`, imports each mbox, then
+records the export in the ledger. The importer never replaces a stored
+message id, so overlap costs nothing. Delta exports (`chat-delta-*`) may add
+to Chat API spaces; the original full export may not. `sync` refuses to run
+while `export-workspace` is running, since both write `users.json` and the
+attachment index.
+
+Found while building this (2026-09-23): the 21 unreachable spaces the sweep
+reported beyond the 96 Vault spaces are Google Meet chats ("Jacob/Ken
+Oversight – Sep 8" and similar). Their members are live users, but Google
+leaves a chat out of `spaces.list` until someone posts, and these hold no
+messages (three checked as jacob@hrc.email: 0 each). Nothing is missing.

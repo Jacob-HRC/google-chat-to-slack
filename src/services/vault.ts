@@ -12,7 +12,7 @@
  */
 
 import { createWriteStream } from 'node:fs';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, rename, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -48,6 +48,10 @@ export interface VaultExportSummary {
   sizeInBytes?: number;
   bucketName?: string;
   objectNames: string[];
+  /** Spaces the export's query covered. */
+  roomIds: string[];
+  /** The query's start time, for delta exports. */
+  startTime?: string;
 }
 
 /** Splits space ids into request-sized batches. Pure. */
@@ -271,6 +275,8 @@ function toExportSummary(
     objectNames: (sink?.files ?? [])
       .map((f) => f.objectName ?? '')
       .filter(Boolean),
+    roomIds: exportItem.query?.hangoutsChatInfo?.roomId ?? [],
+    startTime: exportItem.query?.startTime ?? undefined,
   };
 }
 
@@ -280,7 +286,9 @@ export async function createChatExports(
   roomIds: readonly string[],
   namePrefix: string,
   format: ChatExportFormat,
-  subject?: string
+  subject?: string,
+  /** Only messages from this time on (delta exports). */
+  startTime?: string
 ): Promise<VaultExportSummary[]> {
   const vault = await vaultClient(subject);
   const chunks = chunkRoomIds(roomIds);
@@ -295,7 +303,7 @@ export async function createChatExports(
         matterId,
         requestBody: {
           name,
-          query: buildRoomQuery(chunk),
+          query: buildRoomQuery(chunk, { startTime }),
           exportOptions: { hangoutsChatOptions: { exportFormat: format } },
         },
       })
@@ -354,10 +362,16 @@ export async function downloadExportFiles(
 
   const downloaded: DownloadedExportFile[] = [];
   for (const objectName of exportSummary.objectNames) {
+    const localPath = path.join(destDir, path.basename(objectName));
+    // biome-ignore lint/nursery/noAwaitInLoop: one object at a time bounds memory.
+    const done = await stat(localPath).catch(() => null);
+    if (done?.isFile()) {
+      downloaded.push({ objectName, localPath, bytes: done.size });
+      continue;
+    }
     const url = `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(
       exportSummary.bucketName
     )}/o/${encodeURIComponent(objectName)}?alt=media`;
-    // biome-ignore lint/nursery/noAwaitInLoop: one object at a time bounds memory.
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -372,11 +386,14 @@ export async function downloadExportFiles(
         `Download failed for ${objectName}: HTTP ${res.status} ${res.statusText} ${detail.slice(0, 200)}`
       );
     }
-    const localPath = path.join(destDir, path.basename(objectName));
     const body = Readable.fromWeb(
       res.body as unknown as import('node:stream/web').ReadableStream
     );
-    await pipeline(body, createWriteStream(localPath));
+    // Written under .part and renamed when complete, so a rerun can trust
+    // that any file already present is whole.
+    const partial = `${localPath}.part`;
+    await pipeline(body, createWriteStream(partial));
+    await rename(partial, localPath);
     const size = Number(res.headers.get('content-length') ?? 0);
     downloaded.push({ objectName, localPath, bytes: size });
   }
