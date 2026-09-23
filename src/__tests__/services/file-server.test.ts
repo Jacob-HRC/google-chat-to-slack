@@ -15,6 +15,17 @@ import type { HostedFile } from '../../types/slack-export';
 
 const BASE = 'https://files.example.com/s3cr3t';
 
+async function waitFor(
+  condition: () => boolean,
+  timeoutMs = 2000
+): Promise<void> {
+  const started = Date.now();
+  while (!condition() && Date.now() - started < timeoutMs) {
+    // biome-ignore lint/nursery/noAwaitInLoop: polling a condition.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 function hosted(localPath: string, name: string, size: number): HostedFile {
   return {
     url: `${BASE}/AAAA/msg.1/${encodeURIComponent(name)}`,
@@ -86,6 +97,9 @@ describe('file server', () => {
     expect(response.headers.get('content-disposition')).toContain(
       "filename*=UTF-8''Budget%202026.txt"
     );
+    // The server counts a file once its response has finished, which can
+    // land a moment after the client has read the body.
+    await waitFor(() => running.progress.served === 1);
     expect(running.progress.served).toBe(1);
   });
 
