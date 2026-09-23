@@ -4,8 +4,11 @@
 #   https://api.slack.com/apps  →  Create New App  →  From a manifest
 #
 # Every scope here is read-only except files:write, chat:write and
-# channels:join, which the post-import file uploader needs. Nothing in this
-# app can delete a message, remove a member, or change anyone's profile.
+# channels:join, which the post-import file uploader needs. Reinstalling the
+# app after adding the user scopes issues a User OAuth Token (xoxp-) next to
+# the bot token; store it as SLACK_USER_TOKEN or in the keyring as slack-user.
+# Nothing in this app can delete a message, remove a member, or change
+# anyone's profile.
 display_information:
   name: Chat Migration
   description: Reads the workspace for migration checks and attaches imported files.
@@ -40,6 +43,19 @@ oauth_config:
       - files:write
       - chat:write
       - channels:join
+    user:
+      # --- A user token acts as the person who installs the app, and reaches
+      # that person's own DMs and group DMs, which no bot token can. Used by
+      # verify-slack to check them and by upload-files to attach files there.
+      # It reaches nobody else's DMs.
+      - im:read
+      - im:history
+      - mpim:read
+      - mpim:history
+      - groups:read
+      - groups:history
+      - files:write
+      - chat:write
 
 settings:
   org_deploy_enabled: false

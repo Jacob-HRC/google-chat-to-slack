@@ -52,6 +52,9 @@ const configSchema = z.object({
   GOOGLE_EXPORT_USERS: optionalString,
   GOOGLE_EXPORT_ORG_UNIT: optionalString,
   SLACK_BOT_TOKEN: optionalString,
+  // A workspace member's own token (xoxp-). Reaches that person's DMs, which
+  // no bot token can: used to verify them and to attach files there.
+  SLACK_USER_TOKEN: optionalString,
 });
 
 export type AppConfig = z.infer<typeof configSchema>;

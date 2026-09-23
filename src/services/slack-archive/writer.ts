@@ -7,7 +7,12 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { ZipFile } from 'yazl';
-import type { ArchiveModel } from '../../types/slack-export';
+import type {
+  ArchiveConversation,
+  ArchiveModel,
+  MessageIndexConversation,
+  MessageIndexEntry,
+} from '../../types/slack-export';
 import { kindLabel } from './messages';
 
 export interface ArchiveEntry {
@@ -62,11 +67,57 @@ export function archiveEntries(model: ArchiveModel): ArchiveEntry[] {
   return entries;
 }
 
-/** Files the tooling needs beside the archive: manifest, upload and host lists. */
+function indexConversation(
+  conversation: ArchiveConversation
+): MessageIndexConversation {
+  const { plan } = conversation;
+  const messages: MessageIndexEntry[] = [];
+  for (const day of Object.keys(conversation.days).sort()) {
+    for (const message of conversation.days[day]) {
+      const entry: MessageIndexEntry = { ts: message.ts };
+      if (message.thread_ts && message.thread_ts !== message.ts) {
+        entry.threadTs = message.thread_ts;
+      }
+      if (message.files && message.files.length > 0) {
+        entry.fileSizes = message.files.map((f) => f.size);
+      }
+      messages.push(entry);
+    }
+  }
+  return {
+    spaceId: plan.spaceId,
+    kind: plan.kind,
+    name: plan.name,
+    archiveId: plan.id,
+    members: plan.members,
+    messages,
+  };
+}
+
+/** Per-conversation ts lists, so the import can be checked message by message. Pure. */
+export function messageIndex(model: ArchiveModel): MessageIndexConversation[] {
+  return model.conversations.map(indexConversation);
+}
+
+/**
+ * Files the tooling needs beside the archive: manifest, message index,
+ * the member snapshot the build used, and the upload or host list.
+ */
 export function sidecarEntries(model: ArchiveModel): ArchiveEntry[] {
   const entries: ArchiveEntry[] = [
     { path: 'archive-manifest.json', content: json(model.manifest) },
+    {
+      path: 'message-index.json',
+      content: JSON.stringify(messageIndex(model)),
+    },
   ];
+  if (model.memberSnapshot) {
+    // verify-slack diffs against this, even if members.json is refreshed later.
+    entries.push({
+      path: 'members-before.json',
+      content: json(model.memberSnapshot),
+    });
+  }
   if (model.manifest.files.strategy === 'manifest') {
     entries.push({
       path: 'files-to-upload.json',

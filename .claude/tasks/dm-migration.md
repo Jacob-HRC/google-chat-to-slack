@@ -287,12 +287,12 @@ Tasks:
       counts, DM member counts, channel name rules and collisions, duplicate
       emails). Build refuses to write an archive with errors.
 - [x] `slack-members` also snapshots channel names, for collision checks.
-- [ ] `serve-files`: allowlist server with a request log and progress.
-- [ ] `upload-files`: resumable, dry-run, ledger of uploaded files.
-- [ ] `verify-slack`: members before/after diff (no existing member changed,
+- [x] `serve-files`: allowlist server with a request log and progress.
+- [x] `upload-files`: resumable, dry-run, ledger of uploaded files.
+- [x] `verify-slack`: members before/after diff (no existing member changed,
       every new account deactivated), per-conversation ts comparison for
       every conversation the tokens can read, files present.
-- [ ] Runbook: `docs/import-runbook.md`.
+- [x] Runbook: `docs/import-runbook.md`.
 - [ ] Test archive for the Jacob–Ken DM (2faP7UAAAAE), approved by Jacob.
 
 ### Progress notes (2026-09-23)
@@ -323,3 +323,16 @@ Tasks:
   Headline: Reverse Import exists, so a test in the real workspace can be
   undone; the importer fetches `url_private_download` and stores whatever
   comes back, even an error page.
+
+### Phase 4 built (2026-09-23)
+
+- `serve-files`, `verify-slack`, `upload-files`, `--exclude-space`, user-token
+  support (`SLACK_USER_TOKEN` or keyring `slack-user`), user scopes in the
+  manifest, `docs/import-runbook.md`.
+- Tunnel: Tailscale Funnel is allowed on this node for ports 443, 8443 and
+  10000. 443 carries T3 Code (tailnet-only), so file hosting uses 8443.
+  itadmin is the Tailscale operator, so no sudo.
+- Left: the Jacob–Ken pilot. Build it once the export finishes (Jacob asked
+  to keep heavy work off the box until then). It answers the open questions:
+  does Slack fetch hosted files, are ts values preserved, what do merged
+  members see, and is a re-imported DM de-duplicated.

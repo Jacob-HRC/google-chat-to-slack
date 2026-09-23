@@ -48,6 +48,8 @@ export interface BuildArchiveOptions {
   storeDir: string;
   teamId: string;
   spaceFilter: string[];
+  /** Conversations to leave out, e.g. ones already imported by a pilot. */
+  excludeSpaces?: string[];
   skipBotDms: boolean;
   spaceVisibility: SpaceVisibility;
   deletedPolicy: DeletedPolicy;
@@ -145,6 +147,10 @@ async function* eachIncludedSpace(
     if (!(space && matchesSpaceFilter(space.raw, options.spaceFilter))) {
       continue;
     }
+    const excluded = options.excludeSpaces ?? [];
+    if (excluded.length > 0 && matchesSpaceFilter(space.raw, excluded)) {
+      continue;
+    }
     const messages = await loadMessages(store, spaceId);
     yield { space, messages };
   }
@@ -164,6 +170,7 @@ function emptyManifest(options: BuildArchiveOptions): ArchiveManifest {
       firstSeenAfterRun: options.firstSeenAfterRun,
       messagesSince: options.messagesSince,
       spaceFilter: options.spaceFilter,
+      excludeSpaces: options.excludeSpaces ?? [],
       slackMembersFetchedAt: options.slackMembers?.fetchedAt,
     },
     users: {},
@@ -290,6 +297,7 @@ export async function buildArchiveModel(
     uploads: [],
     hostedFiles: [],
     manifest: emptyManifest(options),
+    memberSnapshot: options.slackMembers,
   };
   for (const [chatUserId, mapping] of byChatId) {
     model.manifest.users[chatUserId] = mapping;

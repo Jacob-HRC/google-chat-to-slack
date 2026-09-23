@@ -32,6 +32,7 @@ import { validateArchive } from '../../services/slack-archive/validate';
 import {
   archiveEntries,
   conversationsAtRisk,
+  messageIndex,
   sidecarEntries,
   writeArchive,
 } from '../../services/slack-archive/writer';
@@ -618,8 +619,13 @@ describe('archive from a fixture store', () => {
     expect(hosted.hostedFiles[0].localPath).toMatch(FLYER_PATH_REGEX);
     expect(sidecarEntries(hosted).map((e) => e.path)).toEqual([
       'archive-manifest.json',
+      'message-index.json',
       'hosted-files.json',
     ]);
+    const hostedIndex = messageIndex(hosted).find((c) => c.name === 'general');
+    expect(
+      hostedIndex?.messages.find((m) => m.fileSizes)?.fileSizes
+    ).toHaveLength(2);
   });
 
   it('validates clean, and catches what the importer would choke on', () => {
@@ -643,6 +649,25 @@ describe('archive from a fixture store', () => {
     expect(errors.some((e) => e.includes('already exists in Slack'))).toBe(
       true
     );
+  });
+
+  it('leaves out excluded conversations', async () => {
+    const without = await buildArchiveModel({
+      storeDir: fixture.dir,
+      teamId: 'T1',
+      spaceFilter: [],
+      excludeSpaces: ['general'],
+      skipBotDms: true,
+      spaceVisibility: 'private',
+      deletedPolicy: 'tombstone',
+      fileStrategy: 'manifest',
+      overrides: {},
+      slackMembers: SLACK_SNAPSHOT,
+    });
+    expect(without.conversations.map((c) => c.plan.name)).not.toContain(
+      'general'
+    );
+    expect(without.conversations.length).toBe(model.conversations.length - 1);
   });
 
   it('never reuses the name of a channel that already exists in Slack', async () => {
@@ -685,6 +710,8 @@ describe('archive from a fixture store', () => {
     expect(paths).not.toContain('archive-manifest.json');
     expect(sidecarEntries(model).map((e) => e.path)).toEqual([
       'archive-manifest.json',
+      'message-index.json',
+      'members-before.json',
       'files-to-upload.json',
     ]);
 
@@ -696,8 +723,15 @@ describe('archive from a fixture store', () => {
     expect(result.entries).toBe(entries.length);
     expect(result.sidecars).toEqual([
       path.join(out, 'archive.archive-manifest.json'),
+      path.join(out, 'archive.message-index.json'),
+      path.join(out, 'archive.members-before.json'),
       path.join(out, 'archive.files-to-upload.json'),
     ]);
+    const index = messageIndex(model);
+    const indexed = index.reduce((sum, c) => sum + c.messages.length, 0);
+    expect(indexed).toBe(model.manifest.totals.messages);
+    const replies = index.flatMap((c) => c.messages).filter((m) => m.threadTs);
+    expect(replies.length).toBeGreaterThan(0);
     const manifest = JSON.parse(await readFile(result.sidecars[0], 'utf-8'));
     expect(manifest.totals.messages).toBe(model.manifest.totals.messages);
     expect((await stat(path.join(out, 'archive.zip'))).size).toBeGreaterThan(0);

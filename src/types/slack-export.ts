@@ -5,6 +5,8 @@
  * https://slack.com/help/articles/220556107-How-to-read-Slack-data-exports
  */
 
+import type { SlackMemberSnapshot } from '../services/slack-archive/slack-members';
+
 export interface SlackExportUserProfile {
   real_name: string;
   real_name_normalized: string;
@@ -163,6 +165,29 @@ export interface HostedFile {
   ts: string;
 }
 
+/**
+ * What one conversation should look like in Slack after the import, for
+ * `verify-slack` and `upload-files`. Written beside the ZIP.
+ */
+export interface MessageIndexEntry {
+  ts: string;
+  /** Present on replies only. */
+  threadTs?: string;
+  /** Sizes of files attached by URL (hosted strategy). */
+  fileSizes?: number[];
+}
+
+export interface MessageIndexConversation {
+  spaceId: string;
+  kind: ArchiveConversationKind;
+  /** Channel name, or the archive id for DMs. */
+  name: string;
+  archiveId: string;
+  /** Archive user ids. */
+  members: string[];
+  messages: MessageIndexEntry[];
+}
+
 export interface ArchiveUserMapping {
   slackId: string;
   name: string;
@@ -204,6 +229,7 @@ export interface ArchiveManifest {
     firstSeenAfterRun?: string;
     messagesSince?: string;
     spaceFilter: string[];
+    excludeSpaces: string[];
     /** When the Slack member snapshot used for mapping was fetched. */
     slackMembersFetchedAt?: string;
   };
@@ -255,4 +281,6 @@ export interface ArchiveModel {
   uploads: FileUploadTask[];
   hostedFiles: HostedFile[];
   manifest: ArchiveManifest;
+  /** The destination snapshot the build decided against, if any. */
+  memberSnapshot?: SlackMemberSnapshot;
 }

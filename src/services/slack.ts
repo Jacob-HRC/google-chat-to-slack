@@ -131,6 +131,16 @@ export async function getSlackWebClient(): Promise<WebClient> {
   return new WebClient(token);
 }
 
+/**
+ * A member's own token, if one is configured (`SLACK_USER_TOKEN` or the
+ * `slack-user` keyring entry). Optional: without it, DMs are reported as
+ * unverifiable rather than failing the run.
+ */
+export async function getSlackUserClient(): Promise<WebClient | undefined> {
+  const token = config.SLACK_USER_TOKEN ?? (await getToken('slack-user'));
+  return token ? new WebClient(token) : undefined;
+}
+
 async function findSlackChannelByName(
   slack: WebClient,
   channelName: string

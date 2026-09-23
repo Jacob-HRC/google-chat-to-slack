@@ -22,6 +22,9 @@ not merged yet.
 | `import` | `src/cli/commands/import.ts` | Posts `import/import.json` into Slack via the Web API. |
 | `migrate` | `src/cli/commands/migrate.ts` | Runs all three stages back to back. |
 | `slack-members [--output path] [--json]` | `src/cli/commands/slack-members.ts` | Read-only snapshot of who exists in the destination Slack workspace, for the archive's merge-versus-deactivated decision. |
+| `serve-files --hosted-files <list>` | `src/cli/commands/serve-files.ts` | Serves exactly the files a hosted archive references, for Slack's importer to fetch. Logs every request. |
+| `verify-slack --archive <zip>` | `src/cli/commands/verify-slack.ts` | After an import: existing members unchanged, new accounts deactivated, every readable conversation compared by ts, threads and file sizes. |
+| `upload-files --archive <zip>` | `src/cli/commands/upload-files.ts` | Fallback when files were not hosted: attaches each file as a thread reply to its imported message. Resumable. |
 
 All commands are yargs `CommandModule`s registered in `src/cli/parser.ts` and
 launched from `bin/googletoslack.ts`.
@@ -641,3 +644,30 @@ guesses. Each item cites where it came from.
   fails with "Google Chat app not found. To create a Chat app, you must turn
   on the Chat API and configure the app in the Google Cloud console." The
   admin sweep is therefore optional until a Chat app is configured.
+
+## Import tooling (Phase 4)
+
+The procedure is in `docs/import-runbook.md`. The pieces:
+
+- **Validation** (`slack-archive/validate.ts`) runs on every build and blocks
+  the write on errors: unknown users anywhere a user id appears, duplicate
+  ts, replies without a parent, reply counts, DM and group DM sizes, channel
+  name rules, names already taken in Slack, and two people sharing an email.
+- **Sidecars** sit beside the ZIP, never inside it: the manifest, a message
+  index (every ts per conversation, reply links, hosted file sizes), the member
+  snapshot the build used, and either `files-to-upload.json` or
+  `hosted-files.json`.
+- **Files** go hosted first: `serve-files` is an allowlist server (exact paths
+  only, empty 404 for anything else, size check before start) behind Tailscale
+  Funnel on 8443. Slack's importer stores whatever a file URL returns, so no
+  error page may ever be served with a 200. `upload-files` is the fallback;
+  it cannot reach DMs between other people.
+- **Destinations** (`slack-destination.ts`): the archive's ids mean nothing to
+  Slack after import, so channels are found by name and DMs by their members,
+  with archive user ids mapped to real accounts by email.
+- **Verification** (`slack-verify.ts`): member diff before and after, then
+  per-conversation comparison. Conversations no token can read are reported
+  as unverifiable, never as passing.
+- **Scale**: the build streams conversations (two passes) and drops raw
+  attachment objects after loading the 180 MB+ attachment index. The full
+  build still needs `--max-old-space-size=6144`.

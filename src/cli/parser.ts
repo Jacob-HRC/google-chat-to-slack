@@ -9,11 +9,14 @@ import { loginCommand } from './commands/login';
 import { logoutCommand } from './commands/logout';
 import { migrateCommand } from './commands/migrate';
 import { recoverNamesCommand } from './commands/recover-names';
+import { serveFilesCommand } from './commands/serve-files';
 import { slackMembersCommand } from './commands/slack-members';
 import { transformCommand } from './commands/transform';
+import { uploadFilesCommand } from './commands/upload-files';
 import { usersCommand } from './commands/users';
 import { vaultCommand } from './commands/vault';
 import { verifyCommand } from './commands/verify';
+import { verifySlackCommand } from './commands/verify-slack';
 
 export function getParser() {
   const parser = yargs(hideBin(process.argv));
@@ -32,6 +35,9 @@ export function getParser() {
   parser.command(recoverNamesCommand);
   parser.command(slackMembersCommand);
   parser.command(buildSlackArchiveCommand);
+  parser.command(serveFilesCommand);
+  parser.command(verifySlackCommand);
+  parser.command(uploadFilesCommand);
 
   return parser;
 }

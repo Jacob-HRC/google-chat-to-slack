@@ -35,6 +35,7 @@ type BuildArgs = {
   unpacked?: string;
   dryRun?: boolean;
   space?: string[];
+  excludeSpace?: string[];
   includeBotDms?: boolean;
   spaceVisibility?: string;
   deleted?: string;
@@ -99,6 +100,7 @@ async function toBuildOptions(argv: BuildArgs): Promise<BuildArchiveOptions> {
     storeDir: path.resolve(argv.input),
     teamId: argv.teamId ?? slackMembers?.teamId ?? 'T0GCHAT0001',
     spaceFilter: argv.space ?? [],
+    excludeSpaces: argv.excludeSpace ?? [],
     skipBotDms: !argv.includeBotDms,
     spaceVisibility: (argv.spaceVisibility ?? 'private') as SpaceVisibility,
     deletedPolicy: (argv.deleted ?? 'tombstone') as DeletedPolicy,
@@ -192,6 +194,12 @@ export const buildSlackArchiveCommand: CommandModule<object, BuildArgs> = {
       .option('space', {
         describe:
           'Only these conversations (id, spaces/<id> or display name). Repeatable.',
+        type: 'string',
+        array: true,
+      })
+      .option('exclude-space', {
+        describe:
+          'Leave these conversations out (same forms as --space), e.g. ones a pilot import already brought over. Repeatable.',
         type: 'string',
         array: true,
       })
