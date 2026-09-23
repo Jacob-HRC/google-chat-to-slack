@@ -412,4 +412,4 @@ Johanna Moore (highridgemw.com) whose exact addresses are unknown.
   one or two members remain). Build with --channel-visibility; unlisted
   Spaces are private. Jacob to review the list.
 - Vault-recovered Spaces: --vault-prefix archive-.
-- Deleted messages: answer cut off; ask again.
+- Deleted messages: placeholder ("This message was deleted in Google Chat"), i.e. --deleted tombstone (the default).
