@@ -418,3 +418,18 @@ Johanna Moore (highridgemw.com) whose exact addresses are unknown.
   Tab "Channels": Space, Visibility (dropdown), reason, members, messages,
   source, Space ID. When Jacob is done, read it back into
   data/slack/channel-visibility.csv by Space ID.
+
+### Pilot plan (agreed 2026-09-23)
+
+Two conversations, built once the export's second pass finishes:
+- 2faP7UAAAAE: Jacob–Ken DM (3,654 messages, ~566 files). Tests hosted
+  file fetch, exact ts, threads, and importing into a DM that already has
+  messages in Slack (D0AQ3GYK0FM).
+- 6n5EcMAAAAE: Jacob ↔ his old throwaway account (14 messages). The
+  throwaway (users/108503210910403416808) is overridden to
+  "Jacob Neudorf (test account)" <jacob+slacktest@hrc.email> and imported
+  deactivated. Jacob watches that inbox: any mail from Slack means
+  "import as deactivated" is not silent, and the full import must wait for
+  the announcement.
+Then: verify-slack with both tokens, and try Reverse Import. If the pilot is
+kept, build the full archive with --exclude-space for both.
