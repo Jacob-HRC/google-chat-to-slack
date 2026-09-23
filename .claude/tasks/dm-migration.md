@@ -413,3 +413,9 @@ Johanna Moore (highridgemw.com) whose exact addresses are unknown.
   Spaces are private. Jacob to review the list.
 - Vault-recovered Spaces: --vault-prefix archive-.
 - Deleted messages: placeholder ("This message was deleted in Google Chat"), i.e. --deleted tombstone (the default).
+- Visibility review Sheet (in Jacob's Drive, 2026-09-23):
+  https://docs.google.com/spreadsheets/d/1tOMUH-GFNtuhCBZqA7FlwPAUK7AmHzzciUVGLdXRcP4/edit
+  Tab "Channels": Space, Visibility (dropdown), reason, members, messages,
+  source, Space ID. When Jacob is done, read it back into
+  data/slack/channel-visibility.csv by Space ID.
+- Deleted messages: placeholder, confirmed.
