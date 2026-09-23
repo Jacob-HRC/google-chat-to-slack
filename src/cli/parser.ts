@@ -3,6 +3,7 @@ import { hideBin } from 'yargs/helpers';
 import { buildSlackArchiveCommand } from './commands/build-slack-archive';
 import { exportCommand } from './commands/export';
 import { exportWorkspaceCommand } from './commands/export-workspace';
+import { findAddressesCommand } from './commands/find-addresses';
 import { importCommand } from './commands/import';
 import { importVaultCommand } from './commands/import-vault';
 import { loginCommand } from './commands/login';
@@ -33,6 +34,7 @@ export function getParser() {
   parser.command(vaultCommand);
   parser.command(importVaultCommand);
   parser.command(recoverNamesCommand);
+  parser.command(findAddressesCommand);
   parser.command(slackMembersCommand);
   parser.command(buildSlackArchiveCommand);
   parser.command(serveFilesCommand);

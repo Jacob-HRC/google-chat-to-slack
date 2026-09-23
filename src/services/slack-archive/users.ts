@@ -55,6 +55,8 @@ export interface BuiltUsers {
 }
 
 const LEADING_AT = /^@+/;
+// Google guest accounts: will.howard_live.com@hrc.email.guest.google.
+const GUEST_ADDRESS = /^(.+)_([^_@]+\.[^_@]+)@[^@]+\.guest\.google$/i;
 const MULTI_SPACE = /\s+/g;
 
 function normalizeName(value: string): string {
@@ -98,6 +100,16 @@ export function needsSlackAccount(user: StoredUser): boolean {
   return user.status !== 'bot' && user.status !== 'group';
 }
 
+/**
+ * The person's own address behind a Google guest account. Google names the
+ * guest `<local>_<domain>@<org>.guest.google`; Slack should know them by the
+ * address they actually use. Anything else passes through. Pure.
+ */
+export function realAddress(email: string | undefined): string | undefined {
+  const match = email?.match(GUEST_ADDRESS);
+  return match ? `${match[1]}@${match[2]}` : email;
+}
+
 /** Obviously a stand-in, and stable across builds. */
 export function placeholderEmail(chatUserId: string, domain: string): string {
   const suffix = chatUserId.replace('users/', '').slice(-10).toLowerCase();
@@ -118,7 +130,7 @@ function buildRow(
   const name = override.name ?? displayNameOf(person, person.chatUserId);
   const email =
     override.email ??
-    person.email ??
+    realAddress(person.email) ??
     (options.placeholderEmailDomain
       ? placeholderEmail(person.chatUserId, options.placeholderEmailDomain)
       : undefined);

@@ -27,6 +27,7 @@ import {
 import {
   buildUsers,
   placeholderEmail,
+  realAddress,
 } from '../../services/slack-archive/users';
 import { validateArchive } from '../../services/slack-archive/validate';
 import {
@@ -211,6 +212,17 @@ describe('slack members', () => {
     expect(decideImportAction('pastor@example.com', undefined).action).toBe(
       'deactivated'
     );
+  });
+});
+
+describe('guest addresses', () => {
+  it('recovers the address behind a Google guest account', () => {
+    expect(realAddress('will.howard_live.com@hrc.email.guest.google')).toBe(
+      'will.howard@live.com'
+    );
+    expect(realAddress('a_b_gmail.com@x.guest.google')).toBe('a_b@gmail.com');
+    expect(realAddress('pat@hrc.email')).toBe('pat@hrc.email');
+    expect(realAddress(undefined)).toBeUndefined();
   });
 });
 

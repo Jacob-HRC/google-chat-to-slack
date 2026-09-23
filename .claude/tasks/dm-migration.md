@@ -386,3 +386,19 @@ Open with Jacob: is gracec@hrc.email (Vault, 75 messages 2022–2024, only in
 Vault spaces) Grace Chumley? The remaining "unknown" people (Mateo
 Escanuelas, Tessa Boenisch, Candice Kidd, Ellen Fischer, Johanna Moore,
 Jordan Farmer) look like more HireGR accounts.
+
+### Audit-log addresses and corrections (2026-09-23)
+
+Jacob added admin.reports.audit.readonly. `find-addresses` found 7 more
+(Kortny Pendergrass for a nameless record, plus Mateo Escanuelas, Candice
+Kidd, Jordan Farmer, Jennifer & Lauren, William Howard, Kelly Miller) and
+independently confirmed the addresses Jacob gave for Kyle, Grace Nguyen and
+Tara. Corrections from Jacob: grace@hrc.email was Grace Nguyen's old address
+(now gnguyen@highridgegr.com); Grace Chumley was always gracec@hrc.email, so
+the Vault gracec@ record is aliased into hers. William Howard's Google guest
+account (will.howard@live.com) is aliased into his main record, which keeps
+willz06jw@gmail.com. Felecia is not active; she stays deactivated.
+No real address: 44 → 14. Left: 8 nameless deleted accounts older than the
+logs, Jacob's test account (intentional), Jennifer Mitchell and Nicholas
+Negaard (outside), and Ellen Fischer, Tessa Boenisch (highridgegr.com) and
+Johanna Moore (highridgemw.com) whose exact addresses are unknown.

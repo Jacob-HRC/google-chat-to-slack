@@ -97,6 +97,9 @@ googletoslack import
      - `https://www.googleapis.com/auth/chat.messages.readonly`
      - `https://www.googleapis.com/auth/drive.readonly`
      - `https://www.googleapis.com/auth/admin.directory.user.readonly`
+     - `https://www.googleapis.com/auth/admin.reports.audit.readonly` (optional:
+       `find-addresses` uses the audit logs to recover addresses of deleted
+       accounts active in the last ~6 months)
    - Click "Update" to save the scopes
 
 4. **Create OAuth2 Client:**

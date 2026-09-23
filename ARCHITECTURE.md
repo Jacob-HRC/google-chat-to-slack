@@ -707,3 +707,19 @@ reported beyond the 96 Vault spaces are Google Meet chats ("Jacob/Ken
 Oversight – Sep 8" and similar). Their members are live users, but Google
 leaves a chat out of `spaces.list` until someone posts, and these hold no
 messages (three checked as jacob@hrc.email: 0 each). Nothing is missing.
+
+## Addresses from the audit logs
+
+`find-addresses` (`services/audit-addresses.ts`) looks up each person with no
+address in the Admin SDK Reports API by `userKey = <profile id>`. The audit
+actor's `profileId` is the same number as the Chat user id, so the match is
+exact. It covers anyone active in the domain within the logs' retention
+(about six months), including outside people who opened HRC Drive files.
+An address is accepted only if exactly one was seen, no current Google
+account holds it, no Slack member holds it (the import would merge into
+them), and no other person in the store carries it. `--apply` adds the
+accepted ones to the `--user-overrides` file.
+
+Google guest accounts carry addresses like
+`will.howard_live.com@hrc.email.guest.google`; `realAddress()` in
+`slack-archive/users.ts` turns them back into `will.howard@live.com`.
