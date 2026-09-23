@@ -418,4 +418,3 @@ Johanna Moore (highridgemw.com) whose exact addresses are unknown.
   Tab "Channels": Space, Visibility (dropdown), reason, members, messages,
   source, Space ID. When Jacob is done, read it back into
   data/slack/channel-visibility.csv by Space ID.
-- Deleted messages: placeholder, confirmed.
