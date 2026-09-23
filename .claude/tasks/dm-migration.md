@@ -398,7 +398,7 @@ Tara. Corrections from Jacob: grace@hrc.email was Grace Nguyen's old address
 the Vault gracec@ record is aliased into hers. William Howard's Google guest
 account (will.howard@live.com) is aliased into his main record, which keeps
 willz06jw@gmail.com. Felecia is not active; she stays deactivated.
-No real address: 44 → 14. Left: 8 nameless deleted accounts older than the
+No real address: 44 → 14 → 11 (Jacob confirmed johanna@highridgemw.com, efischer@ and tboenisch@highridgegr.com). Left: 8 nameless deleted accounts older than the
 logs, Jacob's test account (intentional), Jennifer Mitchell and Nicholas
 Negaard (outside), and Ellen Fischer, Tessa Boenisch (highridgegr.com) and
 Johanna Moore (highridgemw.com) whose exact addresses are unknown.
