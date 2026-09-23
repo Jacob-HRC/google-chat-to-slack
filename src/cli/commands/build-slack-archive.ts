@@ -1,6 +1,7 @@
 import { access } from 'node:fs/promises';
 import path from 'node:path';
 import type { CommandModule } from 'yargs';
+import type { UserOverlay } from '../../services/name-recovery';
 import {
   type BuildArchiveOptions,
   buildArchiveModel,
@@ -48,6 +49,7 @@ type BuildArgs = {
   vaultPrefix?: string;
   placeholderEmailDomain?: string;
   slackMembers?: string;
+  usersOverlay?: string;
 };
 
 async function fileExists(filePath: string): Promise<boolean> {
@@ -83,6 +85,17 @@ async function loadSlackMembers(
   return snapshot;
 }
 
+async function requireOverlay(filePath: string): Promise<UserOverlay> {
+  const overlay = await readJsonFile<UserOverlay>(filePath);
+  if (!overlay) {
+    throw new Error(`--users-overlay file not found: ${filePath}`);
+  }
+  console.log(
+    `Laying recovered names and addresses for ${Object.keys(overlay).length} people over users.json (${filePath}).`
+  );
+  return overlay;
+}
+
 async function toBuildOptions(argv: BuildArgs): Promise<BuildArchiveOptions> {
   if (argv.files === 'hosted' && !argv.filesBaseUrl) {
     throw new Error('--files hosted requires --files-base-url');
@@ -112,6 +125,9 @@ async function toBuildOptions(argv: BuildArgs): Promise<BuildArchiveOptions> {
     vaultPrefix: argv.vaultPrefix,
     placeholderEmailDomain: argv.placeholderEmailDomain,
     slackMembers,
+    usersOverlay: argv.usersOverlay
+      ? await requireOverlay(path.resolve(argv.usersOverlay))
+      : undefined,
   };
 }
 
@@ -262,6 +278,11 @@ export const buildSlackArchiveCommand: CommandModule<object, BuildArgs> = {
       .option('slack-members', {
         describe:
           'Snapshot from `slack-members`. People whose email matches an existing member merge into it; everyone else is emitted deactivated so the importer creates them without inviting or notifying anyone. Defaults to data/slack/members.json when present.',
+        type: 'string',
+      })
+      .option('users-overlay', {
+        describe:
+          'Recovered names and addresses from `recover-names --overlay`, laid over users.json for this build only.',
         type: 'string',
       })
       .option('team-id', {

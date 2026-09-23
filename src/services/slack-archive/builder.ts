@@ -29,6 +29,7 @@ import {
   loadUsers,
   openStore,
 } from '../export-store';
+import { applyUsersOverlay, type UserOverlay } from '../name-recovery';
 import { matchesSpaceFilter } from '../workspace-export';
 import {
   type ConversationOptions,
@@ -64,6 +65,8 @@ export interface BuildArchiveOptions {
   placeholderEmailDomain?: string;
   /** Who already exists in the destination; see slack-members.ts. */
   slackMembers?: SlackMemberSnapshot;
+  /** Recovered names and addresses laid over users.json; see recover-names --overlay. */
+  usersOverlay?: UserOverlay;
 }
 
 interface LoadedSpace {
@@ -267,7 +270,10 @@ export async function buildArchiveModel(
   options: BuildArchiveOptions
 ): Promise<ArchiveModel> {
   const store = await openStore(options.storeDir);
-  const allUsers = await loadUsers(store);
+  const allUsers = applyUsersOverlay(
+    await loadUsers(store),
+    options.usersOverlay ?? {}
+  );
   const attachmentIndex = slimAttachmentIndex(await loadAttachmentIndex(store));
   // First pass: who is referenced. Users must be known before any message
   // can be built, and holding every conversation at once exhausts the heap.

@@ -347,3 +347,25 @@ Tasks:
 Today's dry run: all 96 spaces up to date, nothing to export or import.
 Run `vault delta` again at cutover: anyone offboarded between now and then
 can orphan more spaces.
+
+### Recovery without waiting for the export (2026-09-23)
+
+`recover-names --overlay <file>` writes what recovery changed (name, email,
+alias) to its own file instead of users.json, and `build-slack-archive
+--users-overlay <file>` lays it over the store for that build. So recovery
+no longer waits for the export. Run today:
+
+    recover-names --aliases data/vault-exports/aliases.json \
+      --overlay data/vault-exports/users-overlay.json
+
+25 s. People with no address: 44 → 37. Of the 37: 12 deleted former staff
+with names (Jonathan Emert, Grace Chumley, Taryn Gilman, Sabrina Shelpuk,
+May Coulter, Derek Hinners, Debbie Burgess, Gilbert Cashion, Jonathon
+Howard, Dortha Hall, Charlotte Reber, Felecia McCarthy), 9 "unknown"
+(Directory cannot see them), 6 external, and the rest unnamed. One is a
+second, deleted "Jacob Neudorf" account (users/108503210910403416808).
+Next ideas: Admin/Chat audit logs via the Reports API (needs
+admin.reports.audit.readonly) map ids to emails for anyone active in the
+last ~6 months; a name→address list from Jacob, checked against the
+Directory and the Slack roster so a guess can never merge into the wrong
+account.

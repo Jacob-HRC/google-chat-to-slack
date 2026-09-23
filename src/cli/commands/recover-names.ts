@@ -13,7 +13,9 @@ import {
   collectFromMessage,
   type EmailCandidate,
   type NameEvidence,
+  peopleWithoutAddress,
   type RecoveryPlan,
+  usersOverlay,
 } from '../../services/name-recovery';
 import { getDefaultWorkspaceExportDirectory } from '../../utils/data-directory';
 import { readJsonFile, writeJsonAtomic } from '../../utils/fs-atomic';
@@ -22,6 +24,7 @@ import { makeRunId } from '../../utils/timestamps';
 type RecoverNamesArgs = {
   input: string;
   apply?: boolean;
+  overlay?: string;
   json?: string;
   aliases?: string;
 };
@@ -107,6 +110,11 @@ export const recoverNamesCommand: CommandModule<object, RecoverNamesArgs> = {
         type: 'boolean',
         default: false,
       })
+      .option('overlay', {
+        describe:
+          'Write the recovered names and addresses to this file instead of users.json, for build-slack-archive --users-overlay. Safe while an export is running.',
+        type: 'string',
+      })
       .option('json', {
         describe: 'Write the plan to this JSON file for review.',
         type: 'string',
@@ -164,21 +172,36 @@ export const recoverNamesCommand: CommandModule<object, RecoverNamesArgs> = {
         manualAliases
       );
 
+      if (argv.apply && argv.overlay) {
+        throw new Error(
+          'choose --apply (write users.json) or --overlay, not both'
+        );
+      }
+      const result = applyRecovery(users, plan, `names-${makeRunId()}`);
       let applied: number | undefined;
       if (argv.apply) {
-        const result = applyRecovery(users, plan, `names-${makeRunId()}`);
         await saveUsers(store, result.users);
         applied = result.updated;
       }
       printPlan(plan, applied);
+      console.log(
+        `\nPeople with no address: ${peopleWithoutAddress(users).length} now → ${peopleWithoutAddress(result.users).length} after recovery`
+      );
+      if (argv.overlay) {
+        const overlay = usersOverlay(users, result.users);
+        await writeJsonAtomic(path.resolve(argv.overlay), overlay);
+        console.log(
+          `Overlay for ${Object.keys(overlay).length} people written to ${path.resolve(argv.overlay)}; users.json untouched.`
+        );
+      }
 
       if (argv.json) {
         await writeJsonAtomic(path.resolve(argv.json), plan);
         console.log(`\nPlan written to ${path.resolve(argv.json)}`);
       }
-      if (!argv.apply) {
+      if (!(argv.apply || argv.overlay)) {
         console.log(
-          '\nNothing was written. Re-run with --apply to keep these names.'
+          '\nNothing was written. Re-run with --apply (or --overlay <file>) to keep these names.'
         );
       }
     } catch (error) {

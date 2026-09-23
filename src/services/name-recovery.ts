@@ -574,3 +574,68 @@ export function applyRecovery(
   }
   return { users: next, updated, aliased: plan.aliases.length };
 }
+
+/** Fields name recovery changes, and the only ones an overlay may carry. */
+const OVERLAY_FIELDS = [
+  'fullName',
+  'placeholderName',
+  'email',
+  'aliasOf',
+] as const;
+
+export type UserOverlay = Record<
+  string,
+  Partial<Pick<StoredUser, (typeof OVERLAY_FIELDS)[number]>>
+>;
+
+/**
+ * What recovery changed, as a patch over users.json. Lets recovery run while
+ * an export is still rewriting users.json: the patch lives in its own file
+ * and the archive build lays it over the store. Pure.
+ */
+export function usersOverlay(
+  before: Record<string, StoredUser>,
+  after: Record<string, StoredUser>
+): UserOverlay {
+  const overlay: UserOverlay = {};
+  for (const [id, user] of Object.entries(after)) {
+    const patch: UserOverlay[string] = {};
+    for (const field of OVERLAY_FIELDS) {
+      if (user[field] !== undefined && user[field] !== before[id]?.[field]) {
+        patch[field] = user[field];
+      }
+    }
+    if (Object.keys(patch).length > 0) {
+      overlay[id] = patch;
+    }
+  }
+  return overlay;
+}
+
+/** Lays an overlay over users.json; people missing from the store are ignored. Pure. */
+export function applyUsersOverlay(
+  users: Record<string, StoredUser>,
+  overlay: UserOverlay
+): Record<string, StoredUser> {
+  const next = { ...users };
+  for (const [id, patch] of Object.entries(overlay)) {
+    const user = next[id];
+    if (user) {
+      next[id] = { ...user, ...patch };
+    }
+  }
+  return next;
+}
+
+/** People who would need a Slack account but have no address. Pure. */
+export function peopleWithoutAddress(
+  users: Record<string, StoredUser>
+): StoredUser[] {
+  return Object.values(users).filter(
+    (user) =>
+      user.status !== 'bot' &&
+      user.status !== 'group' &&
+      !user.aliasOf &&
+      !user.email
+  );
+}

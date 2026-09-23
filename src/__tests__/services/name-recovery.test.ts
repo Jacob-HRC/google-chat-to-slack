@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyRecovery,
+  applyUsersOverlay,
   buildRecoveryPlan,
   chooseName,
   cleanName,
@@ -10,10 +11,12 @@ import {
   type NameEvidence,
   nameFromEmail,
   needsName,
+  peopleWithoutAddress,
   planAliases,
   type RecoveredName,
   resolveAlias,
   reviewWarnings,
+  usersOverlay,
 } from '../../services/name-recovery';
 import type { StoredMessage, StoredUser } from '../../types/export-store';
 
@@ -704,5 +707,55 @@ describe('needsName', () => {
       false
     );
     expect(needsName(undefined)).toBe(true);
+  });
+});
+
+describe('users overlay', () => {
+  const before: Record<string, StoredUser> = {
+    [DELETED]: placeholder(DELETED),
+    'users/active': {
+      ...placeholder('users/active'),
+      isPlaceholder: false,
+      status: 'active',
+      email: 'pat@hrc.email',
+      fullName: 'Pat',
+    },
+    'users/bot': { ...placeholder('users/bot'), status: 'bot' },
+  };
+
+  it('carries only what recovery changed, and replays to the same result', () => {
+    const after = {
+      ...before,
+      [DELETED]: {
+        ...before[DELETED],
+        fullName: 'Jenny Fuksa',
+        placeholderName: 'Jenny Fuksa',
+        email: 'jenny.fuksa@hrc.email',
+        lastResolvedRun: 'names-1',
+      },
+    };
+    const overlay = usersOverlay(before, after);
+    expect(overlay).toEqual({
+      [DELETED]: {
+        fullName: 'Jenny Fuksa',
+        placeholderName: 'Jenny Fuksa',
+        email: 'jenny.fuksa@hrc.email',
+      },
+    });
+    const replayed = applyUsersOverlay(before, overlay);
+    expect(replayed[DELETED]).toMatchObject(overlay[DELETED]);
+    expect(replayed['users/active']).toBe(before['users/active']);
+  });
+
+  it('ignores people the store does not hold', () => {
+    expect(
+      applyUsersOverlay(before, { 'users/gone': { email: 'x@y' } })
+    ).toEqual(before);
+  });
+
+  it('counts people who need an account but have no address', () => {
+    expect(peopleWithoutAddress(before).map((u) => u.chatUserId)).toEqual([
+      DELETED,
+    ]);
   });
 });
