@@ -218,3 +218,40 @@ Settled with Jacob, to be used on the real build:
 2. `slack-members` again, in case the Slack roster changed.
 3. `build-slack-archive --dry-run --placeholder-email-domain chat-archive.hrc.email`
    and check that the report shows no conversations at risk.
+
+## Moving attachments to an external drive
+
+Jacob is adding an external drive on the morning of 2026-09-23 because the
+root filesystem may not hold the rest of the export. Attachments are the whole
+cost, 125 GB of the store so far.
+
+Move `attachments/files` to the drive and symlink it back. Two facts make this
+safe, both checked against the code on 2026-09-22:
+
+- `streamToFile()` in `src/services/chat-reader.ts` does `mkdir -p` on the
+  destination directory and streams straight to the final path. There is no
+  temp file and no `rename()`, so there is no cross-device `EXDEV` failure.
+- `attachments/index.json` stores `localPath` as an absolute path under
+  `data/workspace/attachments/files/`. Symlinking keeps every recorded path
+  valid, so nothing in the store has to be rewritten. Moving the store to a
+  different path instead would invalidate all of them.
+
+Procedure:
+
+    # 1. Stop the export cleanly. The store is additive and atomic.
+    pkill -f export-watch.sh
+    pkill -f "googletoslack.ts export-workspace"
+
+    # 2. Move the files (125 GB+, so this takes a while) and symlink back.
+    mv data/workspace/attachments/files /mnt/<drive>/gcts-attachment-files
+    ln -s /mnt/<drive>/gcts-attachment-files data/workspace/attachments/files
+
+    # 3. Point the watcher's free-space check at the drive, not /home.
+    #    /tmp/export-watch.sh currently runs: df --output=avail -BG /home
+
+    # 4. Resume.
+    pnpm start export-workspace --resume
+
+A download killed part-way leaves a file with no recorded `sha256`, and
+`alreadyOnDisk()` re-downloads it, so an interrupted attachment is not
+mistaken for a complete one.
