@@ -7,6 +7,7 @@ import {
   buildArchiveModel,
 } from '../../services/slack-archive/builder';
 import type { SpaceVisibility } from '../../services/slack-archive/conversations';
+import type { MeetingChatMode } from '../../services/slack-archive/meeting-chats';
 import type {
   DeletedPolicy,
   FileStrategy,
@@ -50,6 +51,7 @@ type BuildArgs = {
   placeholderEmailDomain?: string;
   slackMembers?: string;
   usersOverlay?: string;
+  meetingChats?: string;
 };
 
 async function fileExists(filePath: string): Promise<boolean> {
@@ -125,6 +127,7 @@ async function toBuildOptions(argv: BuildArgs): Promise<BuildArchiveOptions> {
     vaultPrefix: argv.vaultPrefix,
     placeholderEmailDomain: argv.placeholderEmailDomain,
     slackMembers,
+    meetingChats: (argv.meetingChats ?? 'fold') as MeetingChatMode,
     usersOverlay: argv.usersOverlay
       ? await requireOverlay(path.resolve(argv.usersOverlay))
       : undefined,
@@ -279,6 +282,13 @@ export const buildSlackArchiveCommand: CommandModule<object, BuildArgs> = {
         describe:
           'Snapshot from `slack-members`. People whose email matches an existing member merge into it; everyone else is emitted deactivated so the importer creates them without inviting or notifying anyone. Defaults to data/slack/members.json when present.',
         type: 'string',
+      })
+      .option('meeting-chats', {
+        describe:
+          'Google Meet chats. fold: into the DM or group DM of the same people (or a private mtg-<series> channel), one thread per meeting. channels: a private channel per meeting. discard: leave them out.',
+        type: 'string',
+        choices: ['fold', 'channels', 'discard'],
+        default: 'fold',
       })
       .option('users-overlay', {
         describe:

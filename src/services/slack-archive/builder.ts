@@ -14,7 +14,6 @@ import type {
   ArchiveModel,
   ArchiveUserMapping,
   ConversationPlan,
-  FileUploadTask,
   SlackExportChannel,
   SlackExportDm,
   SlackExportMpim,
@@ -33,10 +32,25 @@ import { applyUsersOverlay, type UserOverlay } from '../name-recovery';
 import { matchesSpaceFilter } from '../workspace-export';
 import {
   type ConversationOptions,
+  MPIM_MAX_MEMBERS,
+  participantsOf,
   planConversation,
   type SpaceVisibility,
 } from './conversations';
+import { normalizeChannelName, slackIdFor, uniqueName } from './ids';
 import {
+  isMeetingChat,
+  type MeetingChatMode,
+  meetingHeaderText,
+  meetingSeries,
+  memberKey,
+  mergeDays,
+  type PendingMeeting,
+  threadUnderHeader,
+  tsSet,
+} from './meeting-chats';
+import {
+  type BuiltMessages,
   buildConversationMessages,
   type DeletedPolicy,
   type FileStrategy,
@@ -67,6 +81,8 @@ export interface BuildArchiveOptions {
   slackMembers?: SlackMemberSnapshot;
   /** Recovered names and addresses laid over users.json; see recover-names --overlay. */
   usersOverlay?: UserOverlay;
+  /** What to do with Google Meet chats; see meeting-chats.ts. Default fold. */
+  meetingChats?: MeetingChatMode;
 }
 
 interface LoadedSpace {
@@ -266,6 +282,229 @@ function slimAttachmentIndex(
   return index;
 }
 
+interface Shared {
+  model: ArchiveModel;
+  byChatId: Map<string, ArchiveUserMapping>;
+  attachmentIndex: Record<string, AttachmentRecord>;
+  options: BuildArchiveOptions;
+  fileCounts: { hosted: number; linkOnly: number; unavailable: number };
+  conversationOptions: ConversationOptions;
+}
+
+function messageContext(
+  shared: Shared,
+  plan: ConversationPlan
+): MessageBuildContext {
+  const { options, model } = shared;
+  return {
+    plan,
+    users: shared.byChatId,
+    attachmentIndex: shared.attachmentIndex,
+    options: {
+      deletedPolicy: options.deletedPolicy,
+      fileStrategy: options.fileStrategy,
+      filesBaseUrl: options.filesBaseUrl,
+      filesRoot: attachmentsFilesDir(options.storeDir),
+      firstSeenAfterRun: options.firstSeenAfterRun,
+      messagesSince: options.messagesSince,
+    },
+    uploads: model.uploads,
+    hostedFiles: model.hostedFiles,
+    warnings: model.manifest.warnings,
+    fileCounts: shared.fileCounts,
+  };
+}
+
+function recordSkipped(
+  model: ArchiveModel,
+  space: StoredSpace,
+  messageCount: number,
+  reason: string,
+  plan?: ConversationPlan
+): void {
+  model.manifest.totals.skippedConversations += 1;
+  model.manifest.conversations[space.spaceId] = {
+    kind: plan?.kind ?? 'group',
+    id: plan?.id ?? '',
+    name: plan?.name ?? space.displayName,
+    googleName: space.name,
+    spaceType: space.spaceType,
+    members: plan?.members ?? [],
+    messages: 0,
+    omitted: messageCount,
+    days: 0,
+    skippedReason: reason,
+  };
+}
+
+function addConversation(
+  model: ArchiveModel,
+  key: string,
+  plan: ConversationPlan,
+  built: BuiltMessages
+): ArchiveConversation {
+  const conversation: ArchiveConversation = {
+    plan,
+    days: built.days,
+    messageCount: built.count,
+    omittedCount: built.omitted,
+  };
+  model.conversations.push(conversation);
+  place(model, plan);
+  model.manifest.totals.messages += built.count;
+  model.manifest.totals.omittedMessages += built.omitted;
+  model.manifest.conversations[key] = {
+    kind: plan.kind,
+    id: plan.id,
+    name: plan.name,
+    googleName: plan.googleName,
+    spaceType: plan.spaceType,
+    members: plan.members,
+    messages: built.count,
+    omitted: built.omitted,
+    days: Object.keys(built.days).length,
+  };
+  return conversation;
+}
+
+/** Manifest key for a conversation that exists only to hold meeting chats. */
+const MEETING_HOME_PREFIX = 'meetings:';
+/** A fresh object each time: homes must not share one `days` map. */
+function emptyBuilt(): BuiltMessages {
+  return { days: {}, count: 0, omitted: 0 };
+}
+
+/** The DM or group DM these exact people already have, or a new one. */
+function directHome(
+  shared: Shared,
+  meeting: PendingMeeting,
+  people: string[]
+): ArchiveConversation {
+  const key = memberKey(people);
+  const existing = shared.model.conversations.find(
+    (c) =>
+      (c.plan.kind === 'dm' || c.plan.kind === 'mpim') &&
+      memberKey(c.plan.members) === key
+  );
+  if (existing) {
+    return existing;
+  }
+  const asGroupChat: StoredSpace = {
+    ...meeting.space,
+    spaceType: people.length === 2 ? 'DIRECT_MESSAGE' : 'GROUP_CHAT',
+  };
+  const plan = planConversation(
+    { space: asGroupChat, messages: meeting.messages, users: shared.byChatId },
+    shared.conversationOptions
+  );
+  plan.spaceId = `${MEETING_HOME_PREFIX}${plan.id}`;
+  return addConversation(shared.model, plan.spaceId, plan, emptyBuilt());
+}
+
+/** One private channel per meeting series, for meetings too big or too small for a DM. */
+function seriesHome(
+  shared: Shared,
+  meeting: PendingMeeting,
+  people: string[],
+  seriesChannels: Map<string, ArchiveConversation>
+): ArchiveConversation {
+  const series = meetingSeries(meeting.space.displayName);
+  const known = seriesChannels.get(series);
+  if (known) {
+    known.plan.members = [...new Set([...known.plan.members, ...people])];
+    return known;
+  }
+  const plan: ConversationPlan = {
+    kind: 'group',
+    id: slackIdFor('G', `meeting-series:${series}`),
+    name: uniqueName(
+      normalizeChannelName(
+        `mtg-${series}`,
+        `mtg-${meeting.space.spaceId.toLowerCase()}`
+      ),
+      shared.conversationOptions.usedNames
+    ),
+    spaceId: `${MEETING_HOME_PREFIX}${series}`,
+    googleName: meeting.space.name,
+    googleDisplayName: series,
+    spaceType: 'SPACE',
+    members: people,
+    creator: people[0] ?? '',
+    created:
+      Math.floor(Date.parse(meeting.space.raw.createTime ?? '') / 1000) || 0,
+    purpose: `Google Meet chats from "${series}", one thread per meeting.`,
+  };
+  const conversation = addConversation(
+    shared.model,
+    plan.spaceId,
+    plan,
+    emptyBuilt()
+  );
+  seriesChannels.set(series, conversation);
+  return conversation;
+}
+
+/**
+ * Files each meeting chat with the conversation its people already have,
+ * one thread per meeting. Runs after every other conversation is planned, so
+ * a DM is found wherever it sat in the store.
+ */
+function foldMeetings(shared: Shared, meetings: PendingMeeting[]): void {
+  const { model } = shared;
+  const seriesChannels = new Map<string, ArchiveConversation>();
+  const ordered = [...meetings].sort((a, b) =>
+    (a.space.raw.createTime ?? '').localeCompare(b.space.raw.createTime ?? '')
+  );
+  for (const meeting of ordered) {
+    const people = participantsOf({
+      space: meeting.space,
+      messages: meeting.messages,
+      users: shared.byChatId,
+    }).map((p) => p.mapping.slackId);
+    const home =
+      people.length >= 2 && people.length <= MPIM_MAX_MEMBERS
+        ? directHome(shared, meeting, people)
+        : seriesHome(shared, meeting, people, seriesChannels);
+    const firstUpload = model.uploads.length;
+    const built = buildConversationMessages(
+      meeting.messages,
+      messageContext(shared, home.plan)
+    );
+    const header = threadUnderHeader(
+      Object.values(built.days).flat(),
+      meetingHeaderText(meeting.space),
+      tsSet(home)
+    );
+    for (const upload of model.uploads.slice(firstUpload)) {
+      upload.threadTs = header?.ts;
+    }
+    mergeDays(home, built.days, header ? [header] : []);
+    const added = built.count + (header ? 1 : 0);
+    home.messageCount += added;
+    home.omittedCount += built.omitted;
+    model.manifest.totals.messages += added;
+    model.manifest.totals.omittedMessages += built.omitted;
+    const homeEntry = model.manifest.conversations[home.plan.spaceId];
+    if (homeEntry) {
+      homeEntry.messages = home.messageCount;
+      homeEntry.days = Object.keys(home.days).length;
+      homeEntry.members = home.plan.members;
+    }
+    model.manifest.conversations[meeting.space.spaceId] = {
+      kind: home.plan.kind,
+      id: home.plan.id,
+      name: home.plan.name,
+      googleName: meeting.space.name,
+      spaceType: meeting.space.spaceType,
+      members: people,
+      messages: built.count,
+      omitted: built.omitted,
+      days: 0,
+      mergedInto: home.plan.name,
+    };
+  }
+}
+
 export async function buildArchiveModel(
   options: BuildArchiveOptions
 ): Promise<ArchiveModel> {
@@ -322,82 +561,59 @@ export async function buildArchiveModel(
     }
   }
 
-  const conversationOptions: ConversationOptions = {
-    spaceVisibility: options.spaceVisibility,
-    skipBotDms: options.skipBotDms,
-    // Existing channel names are taken, so archive history never lands in an
-    // unrelated channel that happens to share a name (e.g. #general).
-    usedNames: new Set(options.slackMembers?.channels?.map((c) => c.name)),
-    vaultPrefix: options.vaultPrefix,
+  const shared: Shared = {
+    model,
+    byChatId,
+    attachmentIndex,
+    options,
+    fileCounts: { hosted: 0, linkOnly: 0, unavailable: 0 },
+    conversationOptions: {
+      spaceVisibility: options.spaceVisibility,
+      skipBotDms: options.skipBotDms,
+      // Existing channel names are taken, so archive history never lands in an
+      // unrelated channel that happens to share a name (e.g. #general).
+      usedNames: new Set(options.slackMembers?.channels?.map((c) => c.name)),
+      vaultPrefix: options.vaultPrefix,
+    },
   };
-  const uploads: FileUploadTask[] = model.uploads;
-  const fileCounts = { hosted: 0, linkOnly: 0, unavailable: 0 };
+  const meetingMode = options.meetingChats ?? 'fold';
+  const meetings: PendingMeeting[] = [];
 
   for await (const { space, messages } of eachIncludedSpace(
     options.storeDir,
     options
   )) {
-    const plan = planConversation(
-      { space, messages, users: byChatId },
-      conversationOptions
-    );
-    if (plan.skippedReason) {
-      model.manifest.totals.skippedConversations += 1;
-      model.manifest.conversations[space.spaceId] = {
-        kind: plan.kind,
-        id: plan.id,
-        name: plan.name,
-        googleName: plan.googleName,
-        spaceType: plan.spaceType,
-        members: plan.members,
-        messages: 0,
-        omitted: messages.length,
-        days: 0,
-        skippedReason: plan.skippedReason,
-      };
+    if (meetingMode !== 'channels' && isMeetingChat(space)) {
+      if (meetingMode === 'discard') {
+        recordSkipped(
+          model,
+          space,
+          messages.length,
+          'Google Meet chat (--meeting-chats discard)'
+        );
+      } else {
+        meetings.push({ space, messages });
+      }
       continue;
     }
-    const ctx: MessageBuildContext = {
-      plan,
-      users: byChatId,
-      attachmentIndex,
-      options: {
-        deletedPolicy: options.deletedPolicy,
-        fileStrategy: options.fileStrategy,
-        filesBaseUrl: options.filesBaseUrl,
-        filesRoot: attachmentsFilesDir(options.storeDir),
-        firstSeenAfterRun: options.firstSeenAfterRun,
-        messagesSince: options.messagesSince,
-      },
-      uploads,
-      hostedFiles: model.hostedFiles,
-      warnings: model.manifest.warnings,
-      fileCounts,
-    };
-    const built = buildConversationMessages(messages, ctx);
-    const conversation: ArchiveConversation = {
-      plan,
-      days: built.days,
-      messageCount: built.count,
-      omittedCount: built.omitted,
-    };
-    model.conversations.push(conversation);
-    place(model, plan);
-    model.manifest.totals.messages += built.count;
-    model.manifest.totals.omittedMessages += built.omitted;
-    model.manifest.conversations[space.spaceId] = {
-      kind: plan.kind,
-      id: plan.id,
-      name: plan.name,
-      googleName: plan.googleName,
-      spaceType: plan.spaceType,
-      members: plan.members,
-      messages: built.count,
-      omitted: built.omitted,
-      days: Object.keys(built.days).length,
-    };
+    const plan = planConversation(
+      { space, messages, users: byChatId },
+      shared.conversationOptions
+    );
+    if (plan.skippedReason) {
+      recordSkipped(model, space, messages.length, plan.skippedReason, plan);
+      continue;
+    }
+    const built = buildConversationMessages(
+      messages,
+      messageContext(shared, plan)
+    );
+    addConversation(model, space.spaceId, plan, built);
   }
+  foldMeetings(shared, meetings);
 
+  const { fileCounts } = shared;
+  const uploads = model.uploads;
   model.manifest.files = {
     strategy: options.fileStrategy,
     uploads: uploads.length,

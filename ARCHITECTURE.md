@@ -723,3 +723,25 @@ accepted ones to the `--user-overrides` file.
 Google guest accounts carry addresses like
 `will.howard_live.com@hrc.email.guest.google`; `realAddress()` in
 `slack-archive/users.ts` turns them back into `will.howard@live.com`.
+
+## Google Meet chats
+
+Meet creates a chat for every scheduled meeting. Google leaves empty ones out
+of `spaces.list`, so only chats with messages reach the store (69 at HRC,
+155 messages). They are recognisable exactly: they are the only named Spaces
+Google creates unthreaded (`spaceThreadingState: UNTHREADED_MESSAGES`).
+
+`build-slack-archive --meeting-chats` (`slack-archive/meeting-chats.ts`):
+
+- `fold` (default): each chat goes to the conversation the same people
+  already have: two people → their DM, three to nine → their group DM
+  (created if they have none), otherwise a private `mtg-<series>` channel
+  shared by every meeting of that name. Inside, each meeting is a thread
+  under a `Google Meet` header message ("📅 <meeting name> (Google Meet
+  chat)"), one microsecond before its first message. Messages keep their
+  author and time. Folding runs after every other conversation is planned,
+  so a DM is found wherever it sits in the store. HRC preview: 31 into
+  existing DMs, 17 into existing group DMs, 8 into new group DMs, 13 into 12
+  series channels.
+- `channels`: a private channel per meeting, like any other Space.
+- `discard`: left out, recorded as skipped in the manifest.

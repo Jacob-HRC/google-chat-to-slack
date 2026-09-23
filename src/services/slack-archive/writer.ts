@@ -290,6 +290,13 @@ export function printArchiveReport(model: ArchiveModel, dryRun: boolean): void {
       );
     }
   }
+  const folded = Object.values(m.conversations).filter((c) => c.mergedInto);
+  if (folded.length > 0) {
+    const homes = new Set(folded.map((c) => c.mergedInto));
+    console.log(
+      `   Meeting chats: ${folded.length} folded into ${homes.size} conversation(s), one thread per meeting`
+    );
+  }
   const skipped = Object.values(m.conversations).filter((c) => c.skippedReason);
   if (skipped.length > 0) {
     console.log(

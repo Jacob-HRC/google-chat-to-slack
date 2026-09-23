@@ -88,7 +88,7 @@ export const FIXTURE_USERS: Record<string, StoredUser> = {
   },
 };
 
-const USER_KEN = 'users/100000000000000000004';
+export const USER_KEN = 'users/100000000000000000004';
 
 const MSG_GROUP_1: chat_v1.Schema$Message = {
   name: 'spaces/CCCCgroup/messages/g001.g001',
@@ -367,4 +367,40 @@ export async function createFixtureStore(dir: string): Promise<FixtureStore> {
   await saveUsers(store, users);
   await saveAttachmentIndex(store, index);
   return { dir, users, attachmentIndex: index, messagesBySpace };
+}
+
+/** Adds one more space to a fixture store, for tests that need extra shapes. */
+export async function addFixtureSpace(
+  dir: string,
+  raw: chat_v1.Schema$Space,
+  memberIds: string[],
+  messages: chat_v1.Schema$Message[]
+): Promise<void> {
+  const store = await openStore(dir);
+  const spaceId = spaceIdFromName(raw.name as string);
+  const space = mergeSpace(undefined, {
+    raw,
+    readers: ['pastor@example.com'],
+    readerSubject: 'pastor@example.com',
+    memberships: memberIds.map((id) => ({
+      name: `${raw.name}/members/${id.split('/')[1]}`,
+      state: 'JOINED',
+      role: 'ROLE_MEMBER',
+      member: { name: id, type: 'HUMAN' },
+    })),
+    runId: FIXTURE_RUN,
+    now: FIXTURE_NOW,
+  });
+  const stored = merge(raw.name as string, messages);
+  await saveSpace(store, space);
+  await saveMessages(store, spaceId, stored);
+  await saveState(store, {
+    spaceId,
+    status: 'complete',
+    lastRunId: FIXTURE_RUN,
+    messageCount: stored.length,
+    deletedCount: 0,
+    missingCount: 0,
+    attachmentsPending: 0,
+  });
 }

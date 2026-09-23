@@ -214,6 +214,8 @@ export interface ArchiveConversationMapping {
   omitted: number;
   days: number;
   skippedReason?: string;
+  /** Google Meet chats folded into another conversation: its name. */
+  mergedInto?: string;
 }
 
 export interface ArchiveManifest {

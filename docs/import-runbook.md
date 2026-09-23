@@ -52,6 +52,7 @@ node --max-old-space-size=6144 -r ts-node/register bin/googletoslack.ts \
   build-slack-archive \
   --files hosted --files-base-url "$BASE" \
   --placeholder-email-domain chat-archive.hrc.email \
+  --meeting-chats fold \
   --users-overlay data/vault-exports/users-overlay.json \
   --user-overrides data/vault-exports/manual-addresses.json \
   --output data/slack-archive/hrc-full.zip
