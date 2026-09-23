@@ -29,7 +29,10 @@ so steps 3 and 4 are done by hand. Everything around them is scripted.
 
 - [ ] The export has finished: `pnpm start verify --export` is clean, or its
       failures are understood (files deleted from Drive, for example).
-- [ ] Names recovered: `pnpm start recover-names --aliases data/vault-exports/aliases.json --apply`.
+- [ ] Names recovered: `pnpm start recover-names --aliases data/vault-exports/aliases.json --overlay data/vault-exports/users-overlay.json`.
+      Addresses supplied by hand live in `data/vault-exports/manual-addresses.json`
+      (checked against the Google directory and the Slack roster first, so no
+      address belongs to someone else).
 - [ ] A fresh roster: `pnpm start slack-members`. Take it right before the
       build. Anyone who joins Slack after this point is treated as new.
 - [ ] Optional, for checking your own DMs: a user token. Reinstall the Chat
@@ -49,6 +52,8 @@ node --max-old-space-size=6144 -r ts-node/register bin/googletoslack.ts \
   build-slack-archive \
   --files hosted --files-base-url "$BASE" \
   --placeholder-email-domain chat-archive.hrc.email \
+  --users-overlay data/vault-exports/users-overlay.json \
+  --user-overrides data/vault-exports/manual-addresses.json \
   --output data/slack-archive/hrc-full.zip
 ```
 

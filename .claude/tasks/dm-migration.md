@@ -369,3 +369,20 @@ admin.reports.audit.readonly) map ids to emails for anyone active in the
 last ~6 months; a name→address list from Jacob, checked against the
 Directory and the Slack roster so a guess can never merge into the wrong
 account.
+
+### Addresses from Jacob (2026-09-23)
+
+`data/vault-exports/manual-addresses.json` (git-ignored; `--user-overrides`)
+holds 17 addresses Jacob supplied or the data showed, each checked first:
+no Google user holds it (grace@ and gracec@ are Google Groups now) and no
+Slack member holds it. jonathan@hrc.email was reassigned to Jonathan
+Klingenberg, so Jonathan Emert gets jonathan.emert@chat-archive.hrc.email;
+using the real one would merge Emert's history into Klingenberg's account.
+highridgegr.com (HireGR) is a separate Google organisation. The second
+"Jacob Neudorf" (users/108503210910403416808) was a throwaway test account,
+named "Jacob Neudorf (test account)" and left on a placeholder address.
+No real address: 44 → 21.
+Open with Jacob: is gracec@hrc.email (Vault, 75 messages 2022–2024, only in
+Vault spaces) Grace Chumley? The remaining "unknown" people (Mateo
+Escanuelas, Tessa Boenisch, Candice Kidd, Ellen Fischer, Johanna Moore,
+Jordan Farmer) look like more HireGR accounts.
