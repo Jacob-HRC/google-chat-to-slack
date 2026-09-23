@@ -188,3 +188,33 @@ Decision pending from Jacob: write a Vault parser (HTML + MIME) to fold these
 into the store as archival-quality conversations, or leave the export as a
 downloadable archive. Roughly 10k messages against 42k+ in Jacob's account
 alone, so a small but real slice.
+
+## Import decisions (2026-09-22)
+
+Settled with Jacob, to be used on the real build:
+
+- **Placeholder address domain: `chat-archive.hrc.email`.** Pass
+  `--placeholder-email-domain chat-archive.hrc.email` to every real
+  `build-slack-archive` run. Slack imports a DM only when every participant is
+  imported, and it maps by email, so anyone without an address takes their DMs
+  down with them. The domain is a subdomain of one HRC owns, has no mailboxes,
+  and must NOT be added to Google Workspace, or Google would try to route the
+  mail. It does not need to resolve: Slack's import never checks
+  deliverability. The addresses are permanent account identities, so changing
+  the domain later means editing each account by hand.
+- **Everyone not already in Slack is imported as deactivated.** The migration
+  cannot be announced yet. `slack-members` snapshots the workspace and
+  `build-slack-archive` emits every unmatched person with `deleted: true`.
+- **Reactivation one account at a time in the UI is acceptable**, so SCIM and
+  the Slack plan tier no longer need checking.
+- **Still to prove:** that "import as deactivated" sends no mail. Test with an
+  address Jacob controls, on a throwaway workspace, not HighRidge Church.
+
+## After the export finishes
+
+1. `recover-names --aliases data/vault-exports/aliases.json --apply`. Do not
+   run it while the export is running: both write `users.json`, and the
+   export's placeholder self-heal can overwrite recovered names.
+2. `slack-members` again, in case the Slack roster changed.
+3. `build-slack-archive --dry-run --placeholder-email-domain chat-archive.hrc.email`
+   and check that the report shows no conversations at risk.

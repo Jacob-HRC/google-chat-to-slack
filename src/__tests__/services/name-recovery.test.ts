@@ -225,6 +225,38 @@ describe('chooseName', () => {
   it('returns nothing when there is no evidence', () => {
     expect(chooseName(evidenceOf([]))).toBeUndefined();
   });
+
+  it('files an address as an address and still shows the real name', () => {
+    const chosen = chooseName(
+      evidenceOf([
+        ['akramer@highridgegr.com', 5],
+        ['Ashleigh Kramer', 1],
+      ])
+    );
+    expect(chosen?.name).toBe('Ashleigh Kramer');
+    expect(chosen?.email).toBe('akramer@highridgegr.com');
+    expect(chosen?.emailMatch).toBe('self-identified');
+    // The address is not a spelling of the name, so it is not an alternate.
+    expect(chosen?.alternates).toEqual([]);
+  });
+
+  it('uses the address for both when it is the only identity', () => {
+    const chosen = chooseName(evidenceOf([['preston@ourcitychurch.com', 5]]));
+    expect(chosen?.name).toBe('preston@ourcitychurch.com');
+    expect(chosen?.email).toBe('preston@ourcitychurch.com');
+  });
+
+  it('weighs confidence among real names, ignoring the address', () => {
+    const chosen = chooseName(
+      evidenceOf([
+        ['akramer@highridgegr.com', 20],
+        ['Ashleigh Kramer', 10],
+        ['shleigh Krame', 9],
+      ])
+    );
+    expect(chosen?.name).toBe('Ashleigh Kramer');
+    expect(chosen?.confidence).toBe('medium');
+  });
 });
 
 describe('matchEmails', () => {
@@ -272,6 +304,25 @@ describe('matchEmails', () => {
       [free('james@hrc.email')]
     );
     expect(results.every((r) => r.email === undefined)).toBe(true);
+  });
+
+  it('leaves a self-identified address alone', () => {
+    const [matched] = matchEmails(
+      [
+        {
+          chatUserId: DELETED,
+          name: 'Ashleigh Kramer',
+          confidence: 'high',
+          alternates: [],
+          fromDisplayName: true,
+          mentionCount: 0,
+          email: 'akramer@highridgegr.com',
+          emailMatch: 'self-identified',
+        },
+      ],
+      [{ email: 'ashleigh.kramer@hrc.email', claimed: false }]
+    );
+    expect(matched.email).toBe('akramer@highridgegr.com');
   });
 
   it('never takes an address that belongs to a known person', () => {
@@ -354,6 +405,123 @@ describe('buildRecoveryPlan and applyRecovery', () => {
       isPlaceholder: true,
     });
     expect(next[ACTIVE].fullName).toBe('Pat Pastor');
+  });
+
+  it('prefers a real name already in the store over an address', () => {
+    const named = {
+      ...users,
+      [DELETED]: {
+        ...placeholder(DELETED),
+        fullName: 'akramer@highridgegr.com',
+        placeholderName: 'Ashleigh Kramer',
+        status: 'unknown' as const,
+      },
+    };
+    const { users: next } = applyRecovery(
+      named,
+      {
+        recovered: [
+          {
+            chatUserId: DELETED,
+            name: 'akramer@highridgegr.com',
+            confidence: 'high' as const,
+            alternates: [],
+            fromDisplayName: true,
+            mentionCount: 0,
+            email: 'akramer@highridgegr.com',
+            emailMatch: 'self-identified' as const,
+          },
+        ],
+        unresolved: [],
+        warnings: [],
+        aliases: [],
+      },
+      'run'
+    );
+    expect(next[DELETED]).toMatchObject({
+      fullName: 'Ashleigh Kramer',
+      placeholderName: 'Ashleigh Kramer',
+      email: 'akramer@highridgegr.com',
+    });
+  });
+
+  it('falls back to the address when the stored name is an invented one', () => {
+    const { users: next } = applyRecovery(
+      users,
+      {
+        recovered: [
+          {
+            chatUserId: DELETED,
+            name: 'preston@ourcitychurch.com',
+            confidence: 'high' as const,
+            alternates: [],
+            fromDisplayName: true,
+            mentionCount: 0,
+            email: 'preston@ourcitychurch.com',
+            emailMatch: 'self-identified' as const,
+          },
+        ],
+        unresolved: [],
+        warnings: [],
+        aliases: [],
+      },
+      'run'
+    );
+    // "Former user 000003" carries no identity, so the address wins.
+    expect(next[DELETED].fullName).toBe('preston@ourcitychurch.com');
+    expect(next[DELETED].email).toBe('preston@ourcitychurch.com');
+  });
+
+  it('rescues an address an earlier run filed as a name', () => {
+    const named = {
+      ...users,
+      [DELETED]: {
+        ...placeholder(DELETED),
+        fullName: 'akramer@highridgegr.com',
+        placeholderName: 'Ashleigh Kramer',
+        status: 'unknown' as const,
+      },
+    };
+    const { users: next } = applyRecovery(
+      named,
+      {
+        recovered: [
+          {
+            chatUserId: DELETED,
+            name: 'Ashleigh Kramer',
+            confidence: 'high' as const,
+            alternates: [],
+            fromDisplayName: true,
+            mentionCount: 0,
+          },
+        ],
+        unresolved: [],
+        warnings: [],
+        aliases: [],
+      },
+      'run'
+    );
+    expect(next[DELETED]).toMatchObject({
+      fullName: 'Ashleigh Kramer',
+      email: 'akramer@highridgegr.com',
+    });
+  });
+
+  it('rescues an address for someone no source could name', () => {
+    const named = {
+      ...users,
+      [DELETED]: {
+        ...placeholder(DELETED),
+        fullName: 'preston@ourcitychurch.com',
+      },
+    };
+    const { users: next, updated } = applyRecovery(
+      named,
+      { recovered: [], unresolved: [DELETED], warnings: [], aliases: [] },
+      'run'
+    );
+    expect(updated).toBe(0);
+    expect(next[DELETED].email).toBe('preston@ourcitychurch.com');
   });
 
   it('keeps an email the store already had', () => {

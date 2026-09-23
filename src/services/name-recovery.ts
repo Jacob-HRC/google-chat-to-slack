@@ -11,11 +11,17 @@
  *    `@Name` span inside the plain `text` of the message that mentioned them.
  * 3. Google Vault, which records participant *emails* for the spaces it
  *    exported. Those join back to a name by the shape of the address.
+ * 4. The label Google uses for someone it holds no profile for, which is
+ *    their email address. That is an address, not a name, so it is filed as
+ *    one and any real name found elsewhere is preferred for display.
  *
  * Nothing here overwrites a name the Directory supplied.
  */
 import type { StoredMessage, StoredUser } from '../types/export-store';
-import { isGenericDisplayName } from './user-resolver';
+import {
+  isGenericDisplayName,
+  isSyntheticPlaceholderName,
+} from './user-resolver';
 
 const AT_PREFIX = /^@+/;
 const NON_NAME = /[^\p{L}\p{N}'\- ]/gu;
@@ -41,9 +47,9 @@ export interface RecoveredName {
   alternates: string[];
   fromDisplayName: boolean;
   mentionCount: number;
-  /** Email matched from Vault participants, when the match was unambiguous. */
+  /** Address recovered for this person, from Vault or from Google's own label. */
   email?: string;
-  emailMatch?: 'full-name' | 'first-name';
+  emailMatch?: 'full-name' | 'first-name' | 'self-identified';
 }
 
 /** `sender.displayName` is Google's own field, so it outweighs scraped text. */
@@ -62,6 +68,11 @@ export function cleanName(raw: string): string {
     .replace(NON_NAME, ' ')
     .replace(SPACES, ' ')
     .trim();
+}
+
+/** True when a value is an address rather than a name. */
+export function isEmailShaped(value: string | undefined): boolean {
+  return EMAIL_SHAPED.test((value ?? '').trim());
 }
 
 /** Lower-cased, punctuation-free form used only for comparing two names. */
@@ -207,18 +218,28 @@ export function chooseName(evidence: NameEvidence): RecoveredName | undefined {
   if (ranked.length === 0) {
     return;
   }
-  const [name, score] = ranked[0];
-  const runnerUp = ranked[1]?.[1] ?? 0;
+  // Google labels someone it holds no profile for by their address. Filing
+  // that as a name loses the address and puts an email where a name belongs,
+  // so the two kinds of candidate are separated here.
+  const addresses = ranked.filter(([value]) => isEmailShaped(value));
+  const realNames = ranked.filter(([value]) => !isEmailShaped(value));
+  // An address is only used as the display name when nothing better exists.
+  const pool = realNames.length > 0 ? realNames : addresses;
+  const [name, score] = pool[0];
+  const runnerUp = pool[1]?.[1] ?? 0;
   // Google's own field, or a clear winner among scraped spans.
   const confidence: NameConfidence =
     evidence.fromDisplayName || score >= runnerUp * 2 ? 'high' : 'medium';
+  const email = addresses[0]?.[0];
   return {
     chatUserId: evidence.chatUserId,
     name,
     confidence,
-    alternates: ranked.slice(1).map(([alternate]) => alternate),
+    alternates: pool.slice(1).map(([alternate]) => alternate),
     fromDisplayName: evidence.fromDisplayName,
     mentionCount: evidence.mentionCount,
+    email,
+    emailMatch: email ? 'self-identified' : undefined,
   };
 }
 
@@ -261,6 +282,10 @@ export function matchEmails(
   }
 
   return names.map((recovered) => {
+    // An address the person was labelled by outranks one derived from a name.
+    if (recovered.email) {
+      return recovered;
+    }
     const normalized = normalizeForMatch(recovered.name);
     const alternates = recovered.alternates.map(normalizeForMatch);
     const forms = [normalized, ...alternates];
@@ -467,6 +492,39 @@ export function buildRecoveryPlan(
   };
 }
 
+/**
+ * Picks the name to store. An address is a last resort, so a real name
+ * already in the store wins over one.
+ */
+function preferRealName(
+  recoveredName: string,
+  user: StoredUser | undefined
+): string {
+  if (!isEmailShaped(recoveredName)) {
+    return recoveredName;
+  }
+  const stored = [user?.fullName, user?.placeholderName].find(
+    (value) =>
+      value &&
+      !(
+        isEmailShaped(value) ||
+        isGenericDisplayName(value) ||
+        isSyntheticPlaceholderName(value)
+      )
+  );
+  return stored ?? recoveredName;
+}
+
+/**
+ * An address the store filed as a name is still an address. Earlier runs, and
+ * Google itself, put one in the name field for people with no profile.
+ */
+function storedAddress(user: StoredUser | undefined): string | undefined {
+  return [user?.fullName, user?.placeholderName].find((value) =>
+    isEmailShaped(value)
+  );
+}
+
 /** Applies a plan to the user records, leaving directory-named people alone. */
 export function applyRecovery(
   users: Record<string, StoredUser>,
@@ -492,15 +550,27 @@ export function applyRecovery(
     if (!needsName(user)) {
       continue;
     }
+    const name = preferRealName(recovered.name, user);
     next[recovered.chatUserId] = {
       ...user,
-      fullName: recovered.name,
-      placeholderName: recovered.name,
-      email: user.email ?? recovered.email,
+      fullName: name,
+      placeholderName: name,
+      // Read before the name is replaced, or the address is lost with it.
+      email: user.email ?? recovered.email ?? storedAddress(user),
       lastResolvedRun: runId,
       lastResolvedAt: new Date().toISOString(),
     };
     updated += 1;
+  }
+  // People no source could name may still carry an address in their name.
+  for (const user of Object.values(next)) {
+    if (user.email || !needsName(user)) {
+      continue;
+    }
+    const address = storedAddress(user);
+    if (address) {
+      next[user.chatUserId] = { ...user, email: address };
+    }
   }
   return { users: next, updated, aliased: plan.aliases.length };
 }

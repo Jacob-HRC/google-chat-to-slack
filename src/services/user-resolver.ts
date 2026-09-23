@@ -15,9 +15,20 @@ const USERS_PREFIX_REGEX = /^users\//;
 // Names Google substitutes for people who no longer exist. They carry no
 // identity, so placeholders fall back to an id-based name instead.
 const GENERIC_DISPLAY_NAMES = new Set(['deleted user', 'unknown user', '']);
+// The id-based names `placeholderName()` mints below.
+const SYNTHETIC_PLACEHOLDER_NAME =
+  /^(?:Bot|Group|External user|Former user) [\w-]{1,6}$/i;
 
 export function isGenericDisplayName(name: string | undefined): boolean {
   return GENERIC_DISPLAY_NAMES.has((name ?? '').trim().toLowerCase());
+}
+
+/**
+ * True for a name this tool invented from a user id, e.g. "Former user
+ * 297491". Such a name carries no identity, so anything real outranks it.
+ */
+export function isSyntheticPlaceholderName(name: string | undefined): boolean {
+  return SYNTHETIC_PLACEHOLDER_NAME.test((name ?? '').trim());
 }
 
 /** First candidate that is a real name rather than a Google placeholder. */
