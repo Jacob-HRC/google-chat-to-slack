@@ -23,14 +23,21 @@ export interface WriteArchiveOptions {
 export interface WriteArchiveResult {
   zipPath?: string;
   unpackedDir?: string;
+  /** Entries in the ZIP itself. */
   entries: number;
+  /** Manifest and file lists written beside the ZIP. */
+  sidecars: string[];
 }
 
 function json(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
-/** Every file in the archive, in a stable order. Pure. */
+/**
+ * Every file Slack's importer reads, in a stable order. Pure. The manifest and
+ * file lists are deliberately not here: the importer has no use for them, and
+ * they hold every person's address. See `sidecarEntries`.
+ */
 export function archiveEntries(model: ArchiveModel): ArchiveEntry[] {
   const entries: ArchiveEntry[] = [
     { path: 'users.json', content: json(model.users) },
@@ -52,17 +59,32 @@ export function archiveEntries(model: ArchiveModel): ArchiveEntry[] {
       });
     }
   }
-  entries.push({
-    path: 'archive-manifest.json',
-    content: json(model.manifest),
-  });
+  return entries;
+}
+
+/** Files the tooling needs beside the archive: manifest, upload and host lists. */
+export function sidecarEntries(model: ArchiveModel): ArchiveEntry[] {
+  const entries: ArchiveEntry[] = [
+    { path: 'archive-manifest.json', content: json(model.manifest) },
+  ];
   if (model.manifest.files.strategy === 'manifest') {
     entries.push({
       path: 'files-to-upload.json',
       content: json(model.uploads),
     });
+  } else {
+    entries.push({
+      path: 'hosted-files.json',
+      content: json(model.hostedFiles),
+    });
   }
   return entries;
+}
+
+/** `archive.zip` → `archive.archive-manifest.json`, beside the ZIP. */
+export function sidecarPath(zipPath: string, name: string): string {
+  const base = zipPath.endsWith('.zip') ? zipPath.slice(0, -4) : zipPath;
+  return `${base}.${name}`;
 }
 
 async function writeZip(
@@ -98,16 +120,27 @@ export async function writeArchive(
   options: WriteArchiveOptions
 ): Promise<WriteArchiveResult> {
   const entries = archiveEntries(model);
+  const sidecars = sidecarEntries(model);
+  const sidecarPaths: string[] = [];
   if (options.zipPath) {
-    await writeZip(entries, options.zipPath);
+    const { zipPath } = options;
+    await writeZip(entries, zipPath);
+    for (const sidecar of sidecars) {
+      const target = sidecarPath(zipPath, sidecar.path);
+      // biome-ignore lint/nursery/noAwaitInLoop: a handful of small files.
+      await writeFile(target, sidecar.content, 'utf-8');
+      sidecarPaths.push(target);
+    }
   }
   if (options.unpackedDir) {
-    await writeUnpacked(entries, options.unpackedDir);
+    // The unpacked copy is for inspection, so it carries the sidecars too.
+    await writeUnpacked([...entries, ...sidecars], options.unpackedDir);
   }
   return {
     zipPath: options.zipPath,
     unpackedDir: options.unpackedDir,
     entries: entries.length,
+    sidecars: sidecarPaths,
   };
 }
 

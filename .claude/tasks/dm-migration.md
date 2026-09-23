@@ -255,3 +255,71 @@ Procedure:
 A download killed part-way leaves a file with no recorded `sha256`, and
 `alreadyOnDisk()` re-downloads it, so an interrupted attachment is not
 mistaken for a complete one.
+
+## Phase 4 plan (2026-09-23)
+
+Goal: take a built archive through Slack's importer with nothing lost and
+nothing overwritten, and prove it afterwards. Slack's import itself has no
+API (non-Grid), so Jacob uploads the ZIP in the admin UI; everything around
+that step is tooling.
+
+The hard constraint shaping files: a bot cannot post into a DM between two
+other people, and DMs are most of the data. So files have two routes:
+
+1. **Hosted (preferred, true fidelity).** Messages carry `files[]` whose
+   `url_private` points at `serve-files`, a small allowlist-only HTTP server
+   exposed through a tunnel for the duration of the import. If Slack's
+   importer fetches them, files land on the original message, from the
+   original sender, at the original time. Undocumented; the Jacob–Ken DM test
+   decides. The server logs every fetch, so the test answers the question
+   unambiguously.
+2. **Uploader (fallback).** `upload-files` posts each file as a thread reply
+   to its imported message: the bot in channels, a participant's user token
+   in that person's own DMs. Other people's DMs cannot be reached this way.
+
+Tasks:
+
+- [x] Keep `archive-manifest.json` and `files-to-upload.json` out of the ZIP
+      (the importer has no reason to see them, and they hold every address);
+      write them beside it. Add a `hosted-files.json` sidecar for the server.
+- [x] `validate`: structural checks on the model before anything is written
+      (every referenced user exists, unique ts, thread parents exist, reply
+      counts, DM member counts, channel name rules and collisions, duplicate
+      emails). Build refuses to write an archive with errors.
+- [x] `slack-members` also snapshots channel names, for collision checks.
+- [ ] `serve-files`: allowlist server with a request log and progress.
+- [ ] `upload-files`: resumable, dry-run, ledger of uploaded files.
+- [ ] `verify-slack`: members before/after diff (no existing member changed,
+      every new account deactivated), per-conversation ts comparison for
+      every conversation the tokens can read, files present.
+- [ ] Runbook: `docs/import-runbook.md`.
+- [ ] Test archive for the Jacob–Ken DM (2faP7UAAAAE), approved by Jacob.
+
+### Progress notes (2026-09-23)
+
+- Sidecars: `<zip>.archive-manifest.json` plus `<zip>.files-to-upload.json`
+  (manifest strategy) or `<zip>.hosted-files.json` (hosted). The unpacked copy
+  still carries all of them for inspection.
+- `validate.ts` runs on every build; errors block the write, dry runs report.
+- Existing Slack channel names (#general, #random today) are seeded into the
+  name allocator, so a Space called "general" becomes `general-2` rather than
+  merging into the live channel.
+- Full-store build fixes, found on the first full-size dry run:
+  - The build held every conversation's raw messages at once and ran out of
+    heap. It now streams conversations in two passes (who is referenced, then
+    build).
+  - Thread linking scanned every upload in the archive for each reply
+    (quadratic). Now indexed per conversation.
+  - The attachment index is 183 MB of JSON (47k records, mostly the raw
+    Google object). The build drops `raw` and `thumbnailUri` after loading,
+    but parsing still peaks high; run the full build with
+    `node --max-old-space-size=6144 -r ts-node/register bin/googletoslack.ts`.
+  - Not yet re-measured: Jacob asked to hold full builds until the export
+    finishes, because they made the box lag. The last attempt was killed
+    (exit 137), probably by the kernel OOM killer while the export was also
+    holding ~2 GB.
+- Research findings (Slack docs plus third-party reports) are recorded in
+  ARCHITECTURE "Research notes: Slack import" once confirmed by the test.
+  Headline: Reverse Import exists, so a test in the real workspace can be
+  undone; the importer fetches `url_private_download` and stores whatever
+  comes back, even an error page.

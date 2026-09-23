@@ -13,6 +13,10 @@ import type {
 import type { SlackMemberSnapshot } from '../../services/slack-archive/slack-members';
 import type { UserOverride } from '../../services/slack-archive/users';
 import {
+  type ValidationIssue,
+  validateArchive,
+} from '../../services/slack-archive/validate';
+import {
   printArchiveReport,
   writeArchive,
 } from '../../services/slack-archive/writer';
@@ -122,6 +126,9 @@ async function writeOutputs(
     unpackedDir: argv.unpacked ? path.resolve(argv.unpacked) : undefined,
   });
   console.log(`\nWrote ${result.entries} entries to ${result.zipPath}`);
+  for (const sidecar of result.sidecars) {
+    console.log(`Beside it: ${sidecar}`);
+  }
   if (result.unpackedDir) {
     console.log(`Unpacked copy: ${result.unpackedDir}`);
   }
@@ -133,6 +140,28 @@ async function writeOutputs(
       `${model.uploads.length} file(s) listed in files-to-upload.json for the post-import uploader.`
     );
   }
+}
+
+const ISSUES_SHOWN = 15;
+
+/** Prints validation issues; returns true when the archive must not be written. */
+function reportIssues(issues: ValidationIssue[]): boolean {
+  const errors = issues.filter((i) => i.level === 'error');
+  const warnings = issues.length - errors.length;
+  if (issues.length === 0) {
+    console.log("   ✅ Validation: archive matches the importer's rules");
+    return false;
+  }
+  console.log(
+    `   ${errors.length > 0 ? '❌' : '⚠️ '} Validation: ${errors.length} error(s), ${warnings} warning(s)`
+  );
+  for (const issue of issues.slice(0, ISSUES_SHOWN)) {
+    console.log(`     ${issue.level} · ${issue.where}: ${issue.message}`);
+  }
+  if (issues.length > ISSUES_SHOWN) {
+    console.log(`     … and ${issues.length - ISSUES_SHOWN} more`);
+  }
+  return errors.length > 0;
 }
 
 export const buildSlackArchiveCommand: CommandModule<object, BuildArgs> = {
@@ -256,8 +285,16 @@ export const buildSlackArchiveCommand: CommandModule<object, BuildArgs> = {
       const options = await toBuildOptions(argv);
       const model = await buildArchiveModel(options);
       printArchiveReport(model, argv.dryRun ?? false);
+      const existingNames =
+        options.slackMembers?.channels?.map((c) => c.name) ?? [];
+      const blocked = reportIssues(validateArchive(model, existingNames));
       if (argv.dryRun) {
         return;
+      }
+      if (blocked) {
+        throw new Error(
+          'validation failed; nothing written. Fix the errors above and rebuild.'
+        );
       }
       await writeOutputs(model, argv);
     } catch (error) {

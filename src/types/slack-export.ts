@@ -151,6 +151,18 @@ export interface FileUploadTask {
   driveLink?: string;
 }
 
+/** A file referenced by URL (hosted strategy), for `serve-files`' allowlist. */
+export interface HostedFile {
+  url: string;
+  localPath: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  sha256?: string;
+  conversationName: string;
+  ts: string;
+}
+
 export interface ArchiveUserMapping {
   slackId: string;
   name: string;
@@ -241,5 +253,6 @@ export interface ArchiveModel {
   mpims: SlackExportMpim[];
   conversations: ArchiveConversation[];
   uploads: FileUploadTask[];
+  hostedFiles: HostedFile[];
   manifest: ArchiveManifest;
 }

@@ -21,12 +21,25 @@ export interface SlackMember {
   isGuest: boolean;
 }
 
+/** An existing channel, kept so archive names never collide with it. */
+export interface SlackChannelSummary {
+  id: string;
+  name: string;
+  isPrivate: boolean;
+  isArchived: boolean;
+}
+
 export interface SlackMemberSnapshot {
   fetchedAt: string;
   teamId: string;
   teamName: string;
   teamDomain: string;
   members: SlackMember[];
+  /**
+   * Public channels, plus private ones the bot belongs to. Absent in
+   * snapshots taken before channel collection was added.
+   */
+  channels?: SlackChannelSummary[];
 }
 
 /**
@@ -50,6 +63,9 @@ export interface ImportDecision {
 }
 
 type UsersListPage = Awaited<ReturnType<WebClient['users']['list']>>;
+type ConversationsListPage = Awaited<
+  ReturnType<WebClient['conversations']['list']>
+>;
 type RawMember = NonNullable<UsersListPage['members']>[number];
 
 function toMember(raw: RawMember): SlackMember | undefined {
@@ -67,7 +83,36 @@ function toMember(raw: RawMember): SlackMember | undefined {
   };
 }
 
-/** Pages through users.list and team.info. Needs users:read, users:read.email, team:read. */
+/** Needs channels:read and groups:read. Archived channels still hold their names. */
+export async function fetchSlackChannels(
+  client: WebClient
+): Promise<SlackChannelSummary[]> {
+  const channels: SlackChannelSummary[] = [];
+  let cursor: string | undefined;
+  do {
+    // biome-ignore lint/nursery/noAwaitInLoop: pages are sequential by cursor.
+    const page: ConversationsListPage = await client.conversations.list({
+      types: 'public_channel,private_channel',
+      exclude_archived: false,
+      limit: 200,
+      cursor,
+    });
+    for (const raw of page.channels ?? []) {
+      if (raw.id && raw.name) {
+        channels.push({
+          id: raw.id,
+          name: raw.name,
+          isPrivate: Boolean(raw.is_private),
+          isArchived: Boolean(raw.is_archived),
+        });
+      }
+    }
+    cursor = page.response_metadata?.next_cursor || undefined;
+  } while (cursor);
+  return channels;
+}
+
+/** Pages through users.list, team.info and conversations.list. Needs users:read, users:read.email, team:read, channels:read, groups:read. */
 export async function fetchSlackMembers(
   client: WebClient
 ): Promise<SlackMemberSnapshot> {
@@ -95,6 +140,7 @@ export async function fetchSlackMembers(
     teamName: team.team?.name ?? '',
     teamDomain: team.team?.domain ?? '',
     members,
+    channels: await fetchSlackChannels(client),
   };
 }
 

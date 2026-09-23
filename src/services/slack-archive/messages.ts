@@ -10,6 +10,7 @@ import type {
   ArchiveUserMapping,
   ConversationPlan,
   FileUploadTask,
+  HostedFile,
   SlackExportFile,
   SlackExportMessage,
   SlackExportReaction,
@@ -45,6 +46,7 @@ export interface MessageBuildContext {
   attachmentIndex: Record<string, AttachmentRecord>;
   options: MessageBuildOptions;
   uploads: FileUploadTask[];
+  hostedFiles: HostedFile[];
   warnings: string[];
   fileCounts: { hosted: number; linkOnly: number; unavailable: number };
 }
@@ -223,7 +225,18 @@ function handleAttachment(
 
   if (downloaded) {
     if (ctx.options.fileStrategy === 'hosted') {
-      outcome.files.push(toExportFile(record, ts, userId, ctx.options));
+      const file = toExportFile(record, ts, userId, ctx.options);
+      outcome.files.push(file);
+      ctx.hostedFiles.push({
+        url: file.url_private,
+        localPath: record.localPath as string,
+        fileName: file.name,
+        mimeType: file.mimetype,
+        size: file.size,
+        sha256: record.sha256,
+        conversationName: ctx.plan.name,
+        ts,
+      });
       ctx.fileCounts.hosted += 1;
     } else {
       ctx.uploads.push({
@@ -386,8 +399,16 @@ function groupThreads(
 
 function linkThreads(
   items: Array<{ stored: StoredMessage; built: SlackExportMessage }>,
-  ctx: MessageBuildContext
+  uploads: FileUploadTask[]
 ): void {
+  // This conversation's uploads by message ts; scanning every upload in the
+  // archive per reply is quadratic and stalls a full-workspace build.
+  const uploadsByTs = new Map<string, FileUploadTask[]>();
+  for (const upload of uploads) {
+    const list = uploadsByTs.get(upload.ts) ?? [];
+    list.push(upload);
+    uploadsByTs.set(upload.ts, list);
+  }
   for (const group of groupThreads(items)) {
     if (group.replies.length === 0) {
       continue;
@@ -411,13 +432,8 @@ function linkThreads(
       reply.built.thread_ts = parent.ts;
       reply.built.parent_user_id = parentUser;
       // Files posted later must land in the thread, not the channel.
-      for (const upload of ctx.uploads) {
-        if (
-          upload.ts === reply.built.ts &&
-          upload.conversationId === ctx.plan.id
-        ) {
-          upload.threadTs = parent.ts;
-        }
+      for (const upload of uploadsByTs.get(reply.built.ts) ?? []) {
+        upload.threadTs = parent.ts;
       }
     }
   }
@@ -431,6 +447,7 @@ export function buildConversationMessages(
   const included = messages.filter((m) => isIncluded(m, ctx.options));
   const omitted = messages.length - included.length;
   const tsByName = assignUniqueTs(included);
+  const firstUpload = ctx.uploads.length;
   const byName = new Map(messages.map((m) => [m.name, m]));
   const items = included
     .sort((a, b) => compareTimestamps(a.createTime, b.createTime))
@@ -438,7 +455,7 @@ export function buildConversationMessages(
       stored,
       built: buildOne(stored, tsByName.get(stored.name) as string, byName, ctx),
     }));
-  linkThreads(items, ctx);
+  linkThreads(items, ctx.uploads.slice(firstUpload));
 
   const days: Record<string, SlackExportMessage[]> = {};
   for (const item of items) {

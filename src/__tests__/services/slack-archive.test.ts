@@ -28,9 +28,11 @@ import {
   buildUsers,
   placeholderEmail,
 } from '../../services/slack-archive/users';
+import { validateArchive } from '../../services/slack-archive/validate';
 import {
   archiveEntries,
   conversationsAtRisk,
+  sidecarEntries,
   writeArchive,
 } from '../../services/slack-archive/writer';
 import type {
@@ -53,6 +55,7 @@ import {
 
 const USER_ID_REGEX = /^U[0-9A-Z]{10}$/;
 const DM_ID_REGEX = /^D/;
+const FLYER_PATH_REGEX = /flyer\.png$/;
 
 describe('ids', () => {
   it('produces stable Slack-shaped ids', () => {
@@ -609,6 +612,59 @@ describe('archive from a fixture store', () => {
       filetype: 'png',
     });
     expect(hosted.uploads).toEqual([]);
+    expect(hosted.hostedFiles.map((f) => f.url)).toEqual(
+      files?.map((f) => f.url_private)
+    );
+    expect(hosted.hostedFiles[0].localPath).toMatch(FLYER_PATH_REGEX);
+    expect(sidecarEntries(hosted).map((e) => e.path)).toEqual([
+      'archive-manifest.json',
+      'hosted-files.json',
+    ]);
+  });
+
+  it('validates clean, and catches what the importer would choke on', () => {
+    expect(validateArchive(model).filter((i) => i.level === 'error')).toEqual(
+      []
+    );
+
+    const broken = structuredClone(model);
+    const general = broken.conversations.find((c) => c.plan.name === 'general');
+    const messages = Object.values(general?.days ?? {}).flat();
+    messages[0].user = 'UNOBODY0000';
+    const reply = messages.find((m) => m.thread_ts && m.thread_ts !== m.ts);
+    if (reply) {
+      reply.thread_ts = '1.000000';
+    }
+    broken.users.push({ ...broken.users[0], id: 'UCOPY000000' });
+    const errors = validateArchive(broken, ['general']).map((i) => i.message);
+    expect(errors.some((e) => e.includes('UNOBODY0000'))).toBe(true);
+    expect(errors.some((e) => e.includes('missing parent'))).toBe(true);
+    expect(errors.some((e) => e.includes('share'))).toBe(true);
+    expect(errors.some((e) => e.includes('already exists in Slack'))).toBe(
+      true
+    );
+  });
+
+  it('never reuses the name of a channel that already exists in Slack', async () => {
+    const renamed = await buildArchiveModel({
+      storeDir: fixture.dir,
+      teamId: 'T1',
+      spaceFilter: [],
+      skipBotDms: true,
+      spaceVisibility: 'private',
+      deletedPolicy: 'tombstone',
+      fileStrategy: 'manifest',
+      overrides: {},
+      slackMembers: {
+        ...SLACK_SNAPSHOT,
+        channels: [
+          { id: 'C1', name: 'general', isPrivate: false, isArchived: false },
+        ],
+      },
+    });
+    const names = renamed.groups.map((g) => g.name);
+    expect(names).toContain('general-2');
+    expect(names).not.toContain('general');
   });
 
   it('writes a ZIP and an unpacked copy with the expected entries', async () => {
@@ -625,8 +681,12 @@ describe('archive from a fixture store', () => {
     expect(paths).toContain('general/2025-01-31.json');
     expect(paths).toContain('general/2025-02-01.json');
     expect(paths).toContain(`${model.dms[0].id}/2025-03-10.json`);
-    expect(paths).toContain('files-to-upload.json');
-    expect(paths.at(-2)).toBe('archive-manifest.json');
+    expect(paths).not.toContain('files-to-upload.json');
+    expect(paths).not.toContain('archive-manifest.json');
+    expect(sidecarEntries(model).map((e) => e.path)).toEqual([
+      'archive-manifest.json',
+      'files-to-upload.json',
+    ]);
 
     const out = path.join(fixture.dir, 'out');
     const result = await writeArchive(model, {
@@ -634,6 +694,12 @@ describe('archive from a fixture store', () => {
       unpackedDir: path.join(out, 'unpacked'),
     });
     expect(result.entries).toBe(entries.length);
+    expect(result.sidecars).toEqual([
+      path.join(out, 'archive.archive-manifest.json'),
+      path.join(out, 'archive.files-to-upload.json'),
+    ]);
+    const manifest = JSON.parse(await readFile(result.sidecars[0], 'utf-8'));
+    expect(manifest.totals.messages).toBe(model.manifest.totals.messages);
     expect((await stat(path.join(out, 'archive.zip'))).size).toBeGreaterThan(0);
     const users = JSON.parse(
       await readFile(path.join(out, 'unpacked', 'users.json'), 'utf-8')

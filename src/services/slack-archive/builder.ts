@@ -69,27 +69,26 @@ interface LoadedSpace {
   messages: StoredMessage[];
 }
 
-function referencedChatIds(loaded: LoadedSpace[]): Set<string> {
-  const ids = new Set<string>();
-  for (const { space, messages } of loaded) {
-    for (const membership of space.memberships) {
-      if (membership.chatUserId) {
-        ids.add(membership.chatUserId);
-      }
-    }
-    for (const message of messages) {
-      if (message.senderId) {
-        ids.add(message.senderId);
-      }
-      for (const mention of message.mentions) {
-        ids.add(mention);
-      }
-      for (const reaction of message.reactions) {
-        ids.add(reaction.user);
-      }
+function addReferencedIds(
+  { space, messages }: LoadedSpace,
+  ids: Set<string>
+): void {
+  for (const membership of space.memberships) {
+    if (membership.chatUserId) {
+      ids.add(membership.chatUserId);
     }
   }
-  return ids;
+  for (const message of messages) {
+    if (message.senderId) {
+      ids.add(message.senderId);
+    }
+    for (const mention of message.mentions) {
+      ids.add(mention);
+    }
+    for (const reaction of message.reactions) {
+      ids.add(reaction.user);
+    }
+  }
 }
 
 function topic(
@@ -130,12 +129,16 @@ function toMpim(plan: ConversationPlan): SlackExportMpim {
   };
 }
 
-async function loadIncludedSpaces(
+/**
+ * Yields included conversations one at a time. The whole store does not fit
+ * in memory (raw Google messages are large), so callers must not hold on to
+ * `messages` after they are done with a conversation.
+ */
+async function* eachIncludedSpace(
   storeDir: string,
   options: BuildArchiveOptions
-): Promise<LoadedSpace[]> {
+): AsyncGenerator<LoadedSpace> {
   const store = await openStore(storeDir);
-  const loaded: LoadedSpace[] = [];
   for (const spaceId of await listStoredSpaceIds(store)) {
     // biome-ignore lint/nursery/noAwaitInLoop: spaces are read one at a time to bound memory.
     const space = await loadSpace(store, spaceId);
@@ -143,9 +146,8 @@ async function loadIncludedSpaces(
       continue;
     }
     const messages = await loadMessages(store, spaceId);
-    loaded.push({ space, messages });
+    yield { space, messages };
   }
-  return loaded;
 }
 
 function emptyManifest(options: BuildArchiveOptions): ArchiveManifest {
@@ -239,16 +241,33 @@ function place(model: ArchiveModel, plan: ConversationPlan): void {
   }
 }
 
+/**
+ * Drops the fields the archive never reads. The index holds the full Google
+ * attachment object for every file (tens of thousands), which otherwise sits
+ * in memory for the whole build.
+ */
+function slimAttachmentIndex(
+  index: Record<string, AttachmentRecord>
+): Record<string, AttachmentRecord> {
+  for (const record of Object.values(index)) {
+    record.raw = undefined;
+    record.thumbnailUri = undefined;
+  }
+  return index;
+}
+
 export async function buildArchiveModel(
   options: BuildArchiveOptions
 ): Promise<ArchiveModel> {
   const store = await openStore(options.storeDir);
   const allUsers = await loadUsers(store);
-  const attachmentIndex: Record<string, AttachmentRecord> =
-    await loadAttachmentIndex(store);
-  const loaded = await loadIncludedSpaces(options.storeDir, options);
-
-  const ids = referencedChatIds(loaded);
+  const attachmentIndex = slimAttachmentIndex(await loadAttachmentIndex(store));
+  // First pass: who is referenced. Users must be known before any message
+  // can be built, and holding every conversation at once exhausts the heap.
+  const ids = new Set<string>();
+  for await (const loaded of eachIncludedSpace(options.storeDir, options)) {
+    addReferencedIds(loaded, ids);
+  }
   const people: StoredUser[] = Array.from(ids)
     .map((id) => allUsers[id])
     .filter((u): u is StoredUser => Boolean(u));
@@ -269,6 +288,7 @@ export async function buildArchiveModel(
     mpims: [],
     conversations: [],
     uploads: [],
+    hostedFiles: [],
     manifest: emptyManifest(options),
   };
   for (const [chatUserId, mapping] of byChatId) {
@@ -291,13 +311,18 @@ export async function buildArchiveModel(
   const conversationOptions: ConversationOptions = {
     spaceVisibility: options.spaceVisibility,
     skipBotDms: options.skipBotDms,
-    usedNames: new Set(),
+    // Existing channel names are taken, so archive history never lands in an
+    // unrelated channel that happens to share a name (e.g. #general).
+    usedNames: new Set(options.slackMembers?.channels?.map((c) => c.name)),
     vaultPrefix: options.vaultPrefix,
   };
   const uploads: FileUploadTask[] = model.uploads;
   const fileCounts = { hosted: 0, linkOnly: 0, unavailable: 0 };
 
-  for (const { space, messages } of loaded) {
+  for await (const { space, messages } of eachIncludedSpace(
+    options.storeDir,
+    options
+  )) {
     const plan = planConversation(
       { space, messages, users: byChatId },
       conversationOptions
@@ -331,6 +356,7 @@ export async function buildArchiveModel(
         messagesSince: options.messagesSince,
       },
       uploads,
+      hostedFiles: model.hostedFiles,
       warnings: model.manifest.warnings,
       fileCounts,
     };
