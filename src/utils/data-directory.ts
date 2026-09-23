@@ -93,3 +93,8 @@ export function getDefaultSlackArchiveDirectory(): string {
 export function getDefaultSlackMembersFile(): string {
   return join(getDataDirectory(), 'slack', 'members.json');
 }
+
+/** Reviewed public/private list for named Spaces; see channel-visibility. */
+export function getDefaultChannelVisibilityFile(): string {
+  return join(getDataDirectory(), 'slack', 'channel-visibility.csv');
+}

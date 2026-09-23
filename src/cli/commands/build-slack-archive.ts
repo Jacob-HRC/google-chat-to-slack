@@ -1,4 +1,4 @@
-import { access } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { CommandModule } from 'yargs';
 import type { UserOverlay } from '../../services/name-recovery';
@@ -18,6 +18,10 @@ import {
   type ValidationIssue,
   validateArchive,
 } from '../../services/slack-archive/validate';
+import {
+  parseCsv,
+  type Visibility,
+} from '../../services/slack-archive/visibility';
 import {
   printArchiveReport,
   writeArchive,
@@ -52,6 +56,7 @@ type BuildArgs = {
   slackMembers?: string;
   usersOverlay?: string;
   meetingChats?: string;
+  channelVisibility?: string;
 };
 
 async function fileExists(filePath: string): Promise<boolean> {
@@ -85,6 +90,17 @@ async function loadSlackMembers(
     throw new Error(`${filePath} is not a slack-members snapshot`);
   }
   return snapshot;
+}
+
+async function loadVisibility(
+  filePath: string
+): Promise<Map<string, Visibility>> {
+  const rows = parseCsv(await readFile(filePath, 'utf-8'));
+  const publicCount = rows.filter((r) => r.visibility === 'public').length;
+  console.log(
+    `Channel visibility from ${filePath}: ${publicCount} public, ${rows.length - publicCount} private; anything unlisted is private.`
+  );
+  return new Map(rows.map((r) => [r.spaceId, r.visibility]));
 }
 
 async function requireOverlay(filePath: string): Promise<UserOverlay> {
@@ -128,6 +144,9 @@ async function toBuildOptions(argv: BuildArgs): Promise<BuildArchiveOptions> {
     placeholderEmailDomain: argv.placeholderEmailDomain,
     slackMembers,
     meetingChats: (argv.meetingChats ?? 'fold') as MeetingChatMode,
+    visibilityBySpace: argv.channelVisibility
+      ? await loadVisibility(path.resolve(argv.channelVisibility))
+      : undefined,
     usersOverlay: argv.usersOverlay
       ? await requireOverlay(path.resolve(argv.usersOverlay))
       : undefined,
@@ -281,6 +300,11 @@ export const buildSlackArchiveCommand: CommandModule<object, BuildArgs> = {
       .option('slack-members', {
         describe:
           'Snapshot from `slack-members`. People whose email matches an existing member merge into it; everyone else is emitted deactivated so the importer creates them without inviting or notifying anyone. Defaults to data/slack/members.json when present.',
+        type: 'string',
+      })
+      .option('channel-visibility', {
+        describe:
+          'Reviewed public/private list from `channel-visibility`. Overrides --space-visibility; Spaces not on it are private.',
         type: 'string',
       })
       .option('meeting-chats', {

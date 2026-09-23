@@ -402,3 +402,14 @@ No real address: 44 → 14 → 11 (Jacob confirmed johanna@highridgemw.com, efis
 logs, Jacob's test account (intentional), Jennifer Mitchell and Nicholas
 Negaard (outside), and Ellen Fischer, Tessa Boenisch (highridgegr.com) and
 Johanna Moore (highridgemw.com) whose exact addresses are unknown.
+
+### Jacob's import decisions (2026-09-23)
+
+- Meeting chats: fold.
+- Named Spaces: public by default, finance and similar private. Implemented
+  as a reviewed list: `channel-visibility` → data/slack/channel-visibility.csv
+  (277 Spaces; suggested 152 public, 125 private: 37 by name, 88 because only
+  one or two members remain). Build with --channel-visibility; unlisted
+  Spaces are private. Jacob to review the list.
+- Vault-recovered Spaces: --vault-prefix archive-.
+- Deleted messages: answer cut off; ask again.

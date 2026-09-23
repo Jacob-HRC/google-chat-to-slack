@@ -33,6 +33,10 @@ so steps 3 and 4 are done by hand. Everything around them is scripted.
       Addresses supplied by hand live in `data/vault-exports/manual-addresses.json`
       (checked against the Google directory and the Slack roster first, so no
       address belongs to someone else).
+- [ ] Channel visibility reviewed: `pnpm start channel-visibility` adds any new
+      Spaces to `data/slack/channel-visibility.csv` (decisions already made are
+      kept); check every `public` row. A public channel shows its whole
+      history to the whole workspace. Unlisted Spaces are built private.
 - [ ] A fresh roster: `pnpm start slack-members`. Take it right before the
       build. Anyone who joins Slack after this point is treated as new.
 - [ ] Optional, for checking your own DMs: a user token. Reinstall the Chat
@@ -53,6 +57,8 @@ node --max-old-space-size=6144 -r ts-node/register bin/googletoslack.ts \
   --files hosted --files-base-url "$BASE" \
   --placeholder-email-domain chat-archive.hrc.email \
   --meeting-chats fold \
+  --channel-visibility data/slack/channel-visibility.csv \
+  --vault-prefix archive- \
   --users-overlay data/vault-exports/users-overlay.json \
   --user-overrides data/vault-exports/manual-addresses.json \
   --output data/slack-archive/hrc-full.zip

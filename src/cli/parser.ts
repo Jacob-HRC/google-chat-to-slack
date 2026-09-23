@@ -1,6 +1,7 @@
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import { buildSlackArchiveCommand } from './commands/build-slack-archive';
+import { channelVisibilityCommand } from './commands/channel-visibility';
 import { exportCommand } from './commands/export';
 import { exportWorkspaceCommand } from './commands/export-workspace';
 import { findAddressesCommand } from './commands/find-addresses';
@@ -36,6 +37,7 @@ export function getParser() {
   parser.command(recoverNamesCommand);
   parser.command(findAddressesCommand);
   parser.command(slackMembersCommand);
+  parser.command(channelVisibilityCommand);
   parser.command(buildSlackArchiveCommand);
   parser.command(serveFilesCommand);
   parser.command(verifySlackCommand);

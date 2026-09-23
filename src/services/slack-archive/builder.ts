@@ -81,6 +81,8 @@ export interface BuildArchiveOptions {
   slackMembers?: SlackMemberSnapshot;
   /** Recovered names and addresses laid over users.json; see recover-names --overlay. */
   usersOverlay?: UserOverlay;
+  /** Reviewed public/private list; see visibility.ts. Overrides spaceVisibility. */
+  visibilityBySpace?: Map<string, 'public' | 'private'>;
   /** What to do with Google Meet chats; see meeting-chats.ts. Default fold. */
   meetingChats?: MeetingChatMode;
 }
@@ -505,6 +507,34 @@ function foldMeetings(shared: Shared, meetings: PendingMeeting[]): void {
   }
 }
 
+function warnAboutInputs(
+  model: ArchiveModel,
+  options: BuildArchiveOptions,
+  ids: Set<string>,
+  allUsers: Record<string, StoredUser>
+): void {
+  if (!options.slackMembers) {
+    model.manifest.warnings.push(
+      'No Slack member snapshot given (--slack-members); everyone is emitted deactivated and merges into existing members cannot be checked'
+    );
+  }
+  for (const id of ids) {
+    if (!allUsers[id]) {
+      model.manifest.warnings.push(
+        `${id} is referenced but missing from users.json; run export-workspace again`
+      );
+    }
+  }
+}
+
+function warnAboutUnlisted(model: ArchiveModel, unlisted: string[]): void {
+  if (unlisted.length > 0) {
+    model.manifest.warnings.push(
+      `${unlisted.length} Space(s) are not on the visibility list and were made private: ${unlisted.slice(0, 10).join(', ')}`
+    );
+  }
+}
+
 export async function buildArchiveModel(
   options: BuildArchiveOptions
 ): Promise<ArchiveModel> {
@@ -548,18 +578,7 @@ export async function buildArchiveModel(
     model.manifest.users[chatUserId] = mapping;
   }
   countPeople(model, byChatId);
-  if (!options.slackMembers) {
-    model.manifest.warnings.push(
-      'No Slack member snapshot given (--slack-members); everyone is emitted deactivated and merges into existing members cannot be checked'
-    );
-  }
-  for (const id of ids) {
-    if (!allUsers[id]) {
-      model.manifest.warnings.push(
-        `${id} is referenced but missing from users.json; run export-workspace again`
-      );
-    }
-  }
+  warnAboutInputs(model, options, ids, allUsers);
 
   const shared: Shared = {
     model,
@@ -574,6 +593,8 @@ export async function buildArchiveModel(
       // unrelated channel that happens to share a name (e.g. #general).
       usedNames: new Set(options.slackMembers?.channels?.map((c) => c.name)),
       vaultPrefix: options.vaultPrefix,
+      visibilityBySpace: options.visibilityBySpace,
+      unlisted: [],
     },
   };
   const meetingMode = options.meetingChats ?? 'fold';
@@ -611,6 +632,7 @@ export async function buildArchiveModel(
     addConversation(model, space.spaceId, plan, built);
   }
   foldMeetings(shared, meetings);
+  warnAboutUnlisted(model, shared.conversationOptions.unlisted ?? []);
 
   const { fileCounts } = shared;
   const uploads = model.uploads;

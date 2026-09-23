@@ -26,6 +26,12 @@ export interface ConversationOptions {
   usedNames: Set<string>;
   /** Prefix for channels recovered from Google Vault. Empty for none. */
   vaultPrefix?: string;
+  /**
+   * Reviewed per-Space decisions (see visibility.ts). When given, a Space
+   * missing from it is private and its name is added to `unlisted`.
+   */
+  visibilityBySpace?: Map<string, 'public' | 'private'>;
+  unlisted?: string[];
 }
 
 /**
@@ -135,12 +141,26 @@ function base(
   };
 }
 
+function namedSpaceKind(
+  space: StoredSpace,
+  options: ConversationOptions
+): 'channel' | 'group' {
+  if (!options.visibilityBySpace) {
+    return options.spaceVisibility === 'public' ? 'channel' : 'group';
+  }
+  const decided = options.visibilityBySpace.get(space.spaceId);
+  if (!decided) {
+    options.unlisted?.push(space.displayName || space.spaceId);
+  }
+  return decided === 'public' ? 'channel' : 'group';
+}
+
 function planNamedSpace(
   input: ConversationInput,
   options: ConversationOptions,
   members: Array<{ chatUserId: string; mapping: ArchiveUserMapping }>
 ): ConversationPlan {
-  const kind = options.spaceVisibility === 'public' ? 'channel' : 'group';
+  const kind = namedSpaceKind(input.space, options);
   const prefix =
     input.space.source === 'vault' ? (options.vaultPrefix ?? '') : '';
   const name = uniqueName(
