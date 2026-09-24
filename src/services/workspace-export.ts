@@ -46,6 +46,7 @@ import type { DriveExportPreference } from './drive';
 import {
   attachmentsFilesDir,
   type ExportStore,
+  listedButNotKept,
   loadAttachmentIndex,
   loadMessages,
   loadSpace,
@@ -711,6 +712,14 @@ async function syncSpace(
     now: now(),
     fetchedIsComplete: !(since || options.messageLimit),
   });
+  // The merge only ever adds. If a listed message is absent from the result,
+  // saving would lose data: stop this space instead.
+  const dropped = listedButNotKept(fetched, merge.messages);
+  if (dropped.length > 0) {
+    throw new Error(
+      `merge would drop ${dropped.length} listed message(s) (e.g. ${dropped[0]}); nothing saved for this space`
+    );
+  }
   result.messages = {
     listed: fetched.length,
     added: merge.diff.added,

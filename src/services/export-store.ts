@@ -698,6 +698,21 @@ export function mergeMessages(
   return { messages: merged, diff };
 }
 
+/**
+ * Messages from a listing that the merged result does not hold. Must always
+ * be empty: the merge only ever adds. A non-empty answer means the store is
+ * about to lose data, so the caller should refuse to save. Pure.
+ */
+export function listedButNotKept(
+  fetched: chat_v1.Schema$Message[],
+  merged: StoredMessage[]
+): string[] {
+  const kept = new Set(merged.map((m) => m.name));
+  return fetched
+    .map((raw) => raw.name ?? '')
+    .filter((name) => name && !kept.has(name));
+}
+
 export function maxCreateTime(messages: StoredMessage[]): string | undefined {
   let max: string | undefined;
   for (const message of messages) {

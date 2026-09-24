@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { chat_v1 } from 'googleapis';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  listedButNotKept,
   loadMessages,
   loadSpace,
   maxCreateTime,
@@ -156,6 +157,15 @@ describe('thread replies (Google ids are <thread>.<message>)', () => {
     const again = mergeMessages(first.messages, listing, 'AAAAgeneral', RUN_1);
     expect(again.messages).toHaveLength(3);
     expect(again.diff).toMatchObject({ added: 0, missing: 0 });
+  });
+
+  it('names every listed message the merge failed to keep', () => {
+    const merged = mergeMessages([], listing, 'AAAAgeneral', RUN_1).messages;
+    expect(listedButNotKept(listing, merged)).toEqual([]);
+    expect(listedButNotKept(listing, merged.slice(0, 1))).toEqual([
+      'spaces/AAAAgeneral/messages/T1root.R1aaaa',
+      'spaces/AAAAgeneral/messages/T1root.R2bbbb',
+    ]);
   });
 
   it('folds only a thread starter onto its bare Vault id', () => {
