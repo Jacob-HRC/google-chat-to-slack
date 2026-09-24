@@ -32,6 +32,7 @@ import {
   loadMessages,
   loadSpace,
   loadUsers,
+  messageIdentity,
   saveAttachmentIndex,
   saveMessages,
   saveSpace,
@@ -96,15 +97,9 @@ export interface VaultImportReport {
   };
 }
 
-/**
- * Chat API message names duplicate the id (`abc.abc`); Vault renders the bare
- * id (`abc`). Compare on the leading segment so the same message from either
- * source collapses to one key.
- */
+/** Same identity as the merge uses; see messageIdentity. */
 export function messageKey(messageIdOrName: string): string {
-  const afterPrefix =
-    messageIdOrName.split('/messages/').pop() ?? messageIdOrName;
-  return afterPrefix.split('.')[0];
+  return messageIdentity(messageIdOrName);
 }
 
 /** Synthesises a Chat-style user id for someone only seen as an email. */

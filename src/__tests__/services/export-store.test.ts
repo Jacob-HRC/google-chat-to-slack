@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import type { chat_v1 } from 'googleapis';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   loadMessages,
@@ -9,6 +10,7 @@ import {
   mergeMessages,
   mergeSpace,
   messageContentHash,
+  messageIdentity,
   messageIdFromName,
   openStore,
   recordRunPointer,
@@ -128,6 +130,40 @@ describe('messageContentHash attachments', () => {
       ),
     };
     expect(messageContentHash(replaced)).not.toBe(base);
+  });
+});
+
+describe('thread replies (Google ids are <thread>.<message>)', () => {
+  const thread = 'spaces/AAAAgeneral/threads/T1';
+  const reply = (id: string, time: string): chat_v1.Schema$Message => ({
+    name: `spaces/AAAAgeneral/messages/${id}`,
+    sender: { name: 'users/1', type: 'HUMAN' },
+    createTime: time,
+    text: id,
+    thread: { name: thread },
+    threadReply: id.split('.')[0] !== id.split('.')[1],
+  });
+  const listing = [
+    reply('T1root.T1root', '2025-01-01T10:00:00.000001Z'),
+    reply('T1root.R1aaaa', '2025-01-01T10:01:00.000001Z'),
+    reply('T1root.R2bbbb', '2025-01-01T10:02:00.000001Z'),
+  ];
+
+  it('keeps every reply, not just the message that started the thread', () => {
+    const first = mergeMessages([], listing, 'AAAAgeneral', RUN_1);
+    expect(first.messages).toHaveLength(3);
+    expect(first.diff.added).toBe(3);
+    const again = mergeMessages(first.messages, listing, 'AAAAgeneral', RUN_1);
+    expect(again.messages).toHaveLength(3);
+    expect(again.diff).toMatchObject({ added: 0, missing: 0 });
+  });
+
+  it('folds only a thread starter onto its bare Vault id', () => {
+    expect(messageIdentity('spaces/A/messages/T1root.T1root')).toBe('T1root');
+    expect(messageIdentity('spaces/A/messages/T1root.R1aaaa')).toBe(
+      'T1root.R1aaaa'
+    );
+    expect(messageIdentity('T1root')).toBe('T1root');
   });
 });
 

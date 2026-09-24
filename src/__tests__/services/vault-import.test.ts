@@ -281,6 +281,10 @@ describe('identity helpers', () => {
     );
     expect(messageKey('nQXfDwWUN5s')).toBe('nQXfDwWUN5s');
     expect(messageKey('spaces/AAAA/messages/nQXfDwWUN5s')).toBe('nQXfDwWUN5s');
+    // A reply keeps its whole id; only a thread's first message folds.
+    expect(messageKey('spaces/AAAA/messages/nQXfDwWUN5s.Zr9aB2cD3eF')).toBe(
+      'nQXfDwWUN5s.Zr9aB2cD3eF'
+    );
   });
 
   it('derives a stable id for someone known only by email', () => {

@@ -95,13 +95,18 @@ export function spaceIdFromName(name: string): string {
 }
 
 /**
- * Identity shared by both sources. The Chat API duplicates the id in a message
- * name (`abc.abc`) where Vault renders it bare (`abc`), so both collapse to the
- * same key and a message can never be stored twice.
+ * Identity shared by both sources. A Chat API message id is
+ * `<thread>.<message>`: a thread's first message is `abc.abc`, its replies
+ * `abc.xyz`. Vault renders a thread's first message bare (`abc`). So `abc.abc`
+ * folds to `abc` to meet its Vault copy, and every other id is kept whole.
+ *
+ * Folding on the leading segment alone (as this once did) makes every reply
+ * look like a copy of its thread's first message, and the merge drops it.
  */
 export function messageIdentity(name: string): string {
-  const afterPrefix = name.split('/messages/').pop() ?? name;
-  return afterPrefix.split('.')[0];
+  const id = name.split('/messages/').pop() ?? name;
+  const [thread, message] = id.split('.');
+  return message !== undefined && thread === message ? thread : id;
 }
 
 export function messageIdFromName(name: string): string {
