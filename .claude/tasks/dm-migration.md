@@ -433,3 +433,22 @@ Two conversations, built once the export's second pass finishes:
   the announcement.
 Then: verify-slack with both tokens, and try Reverse Import. If the pilot is
 kept, build the full archive with --exclude-space for both.
+
+### Dropped thread replies: found and repaired (2026-09-24)
+
+Google names messages `<thread>.<message>` (starter `abc.abc`, replies
+`abc.xyz`). `messageIdentity()` (added with the Vault importer, 2265f4b)
+kept only the part before the dot, so the merge treated every reply as a
+duplicate of its thread starter and dropped it. Every export pass since then
+lost the replies of each conversation it synced. Measured from the full run
+20260924T124013Z: 13,615 replies across 325 conversations (staff-all 5,576
+listed vs 3,423 kept). Noticed because the store's total (450,208) was below
+the main run's (458,455) with no deletions reported.
+
+Fixed in 8d90f3d (full id is the identity; only abc.abc folds to abc).
+Guard in 5927a61: the export refuses to save a conversation if any listed
+message is missing from the merge result. Repair: export-workspace with
+--space=<id> for the 325 conversations (ids beginning with "-" must use the
+= form). Replies are still in Google, so they come back in full; edit history
+recorded for replies before the loss is not recoverable. Files were already
+on disk and are not re-downloaded.
