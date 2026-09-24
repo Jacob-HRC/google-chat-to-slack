@@ -3,6 +3,7 @@ import {
   attachmentFileName,
   attachmentKey,
   buildAttachmentRecords,
+  uniquePath,
 } from '../../services/attachments';
 import { chooseExportFormat, isGoogleNativeMime } from '../../services/drive';
 import { toStoredMessage } from '../../services/export-store';
@@ -151,5 +152,25 @@ describe('chooseExportFormat', () => {
     );
     expect(isGoogleNativeMime('image/png')).toBe(false);
     expect(isGoogleNativeMime(undefined)).toBe(false);
+  });
+});
+
+describe('attachment paths', () => {
+  it('never lets two different files share a path', () => {
+    const claims = new Map([['/f/msg/image.png', 'media/A']]);
+    expect(uniquePath('/f/msg/image.png', 'media/B', claims)).toBe(
+      '/f/msg/image (2).png'
+    );
+    claims.set('/f/msg/image (2).png', 'media/B');
+    expect(uniquePath('/f/msg/image.png', 'media/C', claims)).toBe(
+      '/f/msg/image (3).png'
+    );
+    // The same file may keep the path it already has.
+    expect(uniquePath('/f/msg/image.png', 'media/A', claims)).toBe(
+      '/f/msg/image.png'
+    );
+    expect(uniquePath('/f/msg/Budget', 'drive/X', new Map())).toBe(
+      '/f/msg/Budget'
+    );
   });
 });

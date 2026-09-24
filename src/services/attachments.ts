@@ -158,6 +158,50 @@ function extensionFor(record: AttachmentRecord): string {
   return (mime && EXTENSION_BY_MIME[mime]) ?? '';
 }
 
+/** What makes two records the same file: Drive id, media resource, or URL. */
+export function fileIdentity(record: AttachmentRecord): string {
+  return (
+    record.driveFileId ??
+    record.drive?.id ??
+    record.resourceName ??
+    record.downloadUri ??
+    record.key
+  );
+}
+
+/**
+ * `dir/image.png`, or `dir/image (2).png` and so on when that path already
+ * holds a different file. The same file (a Drive file attached and linked in
+ * one message) may share a path. Pure.
+ */
+export function uniquePath(
+  destPath: string,
+  identity: string,
+  claims: Map<string, string>
+): string {
+  const { dir, name, ext } = path.parse(destPath);
+  let candidate = destPath;
+  for (let n = 2; ; n += 1) {
+    const owner = claims.get(candidate);
+    if (!owner || owner === identity) {
+      return candidate;
+    }
+    candidate = path.join(dir, `${name} (${n})${ext}`);
+  }
+}
+
+function claimPath(
+  destPath: string,
+  record: AttachmentRecord,
+  ctx: AttachmentSyncContext
+): string {
+  const claims = ctx.claims ?? new Map<string, string>();
+  const identity = fileIdentity(record);
+  const chosen = uniquePath(destPath, identity, claims);
+  claims.set(chosen, identity);
+  return chosen;
+}
+
 /** Local file name for a record: original name when known, else a stable id. */
 export function attachmentFileName(record: AttachmentRecord): string {
   const original = record.drive?.name ?? record.contentName;
@@ -180,6 +224,12 @@ export interface AttachmentSyncContext {
   logger: Logger;
   onProgress?: (record: AttachmentRecord) => void;
   save: () => Promise<void>;
+  /**
+   * Local path → identity of the file stored there. Filled by syncAttachments
+   * from the index, so a download never lands on a path that holds a
+   * different file (two pasted screenshots both called image.png).
+   */
+  claims?: Map<string, string>;
 }
 
 export interface AttachmentSyncStats {
@@ -236,8 +286,12 @@ async function syncUpload(
       error: 'No attachmentDataRef.resourceName on uploaded content',
     };
   }
-  const fileName = attachmentFileName(record);
-  const destPath = path.join(targetDir(record, ctx), fileName);
+  const destPath = claimPath(
+    path.join(targetDir(record, ctx), attachmentFileName(record)),
+    record,
+    ctx
+  );
+  const fileName = path.basename(destPath);
   const resourceName = record.resourceName;
   const { result, subject } = await withSubjectFallback(
     candidateSubjects(record, ctx),
@@ -264,8 +318,12 @@ async function syncGif(
   if (!record.downloadUri) {
     return { ...record, status: 'failed', error: 'GIF has no uri' };
   }
-  const fileName = attachmentFileName(record);
-  const destPath = path.join(targetDir(record, ctx), fileName);
+  const destPath = claimPath(
+    path.join(targetDir(record, ctx), attachmentFileName(record)),
+    record,
+    ctx
+  );
+  const fileName = path.basename(destPath);
   const result = await downloadPublicUrl(record.downloadUri, destPath);
   return {
     ...record,
@@ -316,9 +374,16 @@ async function syncDrive(
   }
 
   const fileName = attachmentFileName(withMeta);
-  const base = isGoogleNativeMime(metadata.mimeType)
-    ? path.join(targetDir(record, ctx), path.parse(fileName).name)
-    : path.join(targetDir(record, ctx), fileName);
+  const native = isGoogleNativeMime(metadata.mimeType);
+  // A Google-native file gets its extension from the export format, so its
+  // path is claimed without one.
+  const base = claimPath(
+    native
+      ? path.join(targetDir(record, ctx), path.parse(fileName).name)
+      : path.join(targetDir(record, ctx), fileName),
+    withMeta,
+    ctx
+  );
   const download = await withSubjectFallback(
     [subject, ...candidateSubjects(record, ctx)],
     (s) => downloadDriveFileAs(s, metadata, base, ctx.driveExportFormat)
@@ -385,6 +450,13 @@ export async function syncAttachments(
     bytes: 0,
   };
   let sinceSave = 0;
+  const claims = ctx.claims ?? new Map<string, string>();
+  for (const record of Object.values(index)) {
+    if (record.localPath && !keys.includes(record.key)) {
+      claims.set(record.localPath, fileIdentity(record));
+    }
+  }
+  const claimed: AttachmentSyncContext = { ...ctx, claims };
 
   for (const key of keys) {
     const record = index[key];
@@ -392,8 +464,11 @@ export async function syncAttachments(
       continue;
     }
     // biome-ignore lint/nursery/noAwaitInLoop: downloads are sequential to respect rate limits.
-    const updated = await processRecord(record, ctx, stats);
+    const updated = await processRecord(record, claimed, stats);
     index[key] = updated;
+    if (updated.localPath) {
+      claims.set(updated.localPath, fileIdentity(updated));
+    }
     ctx.onProgress?.(updated);
     sinceSave += 1;
     if (sinceSave >= SAVE_EVERY) {
