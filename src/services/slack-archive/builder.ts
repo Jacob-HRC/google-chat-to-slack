@@ -75,6 +75,12 @@ export interface BuildArchiveOptions {
   messagesSince?: string;
   /** Prefix for channels recovered from Google Vault. Empty for none. */
   vaultPrefix?: string;
+  /**
+   * Name of a private channel listing every person in the archive. Slack's
+   * importer appears to import people through channel membership, so a
+   * DM-only archive imports nobody and its DMs are dropped. Unset for none.
+   */
+  membersChannel?: string;
   /** Domain for synthetic addresses; see BuildUsersOptions. */
   placeholderEmailDomain?: string;
   /** Who already exists in the destination; see slack-members.ts. */
@@ -527,6 +533,56 @@ function warnAboutInputs(
   }
 }
 
+export const MEMBERS_CHANNEL_TEXT =
+  'This channel lists everyone brought over from Google Chat, so Slack imports each of them along with their direct messages. It holds no conversation and can be archived after the import.';
+
+/** A private channel whose members are every person in the archive. */
+function addMembersChannel(
+  model: ArchiveModel,
+  name: string,
+  usedNames: Set<string>
+): void {
+  const members = [...new Set(model.users.map((u) => u.id))];
+  const creator =
+    Object.values(model.manifest.users).find((u) => u.importAction === 'merge')
+      ?.slackId ??
+    members[0] ??
+    '';
+  const created = Math.floor(Date.now() / 1000);
+  const plan: ConversationPlan = {
+    kind: 'group',
+    id: slackIdFor('G', `members-channel:${name}`),
+    name: uniqueName(
+      normalizeChannelName(name, 'chat-import-members'),
+      usedNames
+    ),
+    spaceId: 'members-channel',
+    googleName: '',
+    googleDisplayName: name,
+    spaceType: 'SPACE',
+    members,
+    creator,
+    created,
+    purpose: MEMBERS_CHANNEL_TEXT,
+  };
+  const ts = `${created}.000001`;
+  addConversation(model, 'members-channel', plan, {
+    days: {
+      [new Date(created * 1000).toISOString().slice(0, 10)]: [
+        {
+          type: 'message',
+          subtype: 'bot_message',
+          username: 'Google Chat import',
+          ts,
+          text: MEMBERS_CHANNEL_TEXT,
+        },
+      ],
+    },
+    count: 1,
+    omitted: 0,
+  });
+}
+
 function warnAboutUnlisted(model: ArchiveModel, unlisted: string[]): void {
   if (unlisted.length > 0) {
     model.manifest.warnings.push(
@@ -633,6 +689,13 @@ export async function buildArchiveModel(
   }
   foldMeetings(shared, meetings);
   warnAboutUnlisted(model, shared.conversationOptions.unlisted ?? []);
+  if (options.membersChannel) {
+    addMembersChannel(
+      model,
+      options.membersChannel,
+      shared.conversationOptions.usedNames
+    );
+  }
 
   const { fileCounts } = shared;
   const uploads = model.uploads;

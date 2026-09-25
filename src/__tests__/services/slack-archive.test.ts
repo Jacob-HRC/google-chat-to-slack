@@ -663,6 +663,30 @@ describe('archive from a fixture store', () => {
     );
   });
 
+  it('can list every person in a members channel, so DM-only people import', async () => {
+    const withMembers = await buildArchiveModel({
+      storeDir: fixture.dir,
+      teamId: 'T1',
+      spaceFilter: [],
+      skipBotDms: true,
+      spaceVisibility: 'private',
+      deletedPolicy: 'tombstone',
+      fileStrategy: 'manifest',
+      overrides: {},
+      slackMembers: SLACK_SNAPSHOT,
+      membersChannel: 'chat-import-members',
+    });
+    const channel = withMembers.groups.find(
+      (g) => g.name === 'chat-import-members'
+    );
+    expect(channel?.members.sort()).toEqual(
+      withMembers.users.map((u) => u.id).sort()
+    );
+    expect(
+      validateArchive(withMembers).filter((i) => i.level === 'error')
+    ).toEqual([]);
+  });
+
   it('leaves out excluded conversations', async () => {
     const without = await buildArchiveModel({
       storeDir: fixture.dir,

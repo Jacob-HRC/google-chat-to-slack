@@ -60,6 +60,7 @@ type BuildArgs = {
   usersOverlay?: string;
   meetingChats?: string;
   channelVisibility?: string;
+  membersChannel?: string;
 };
 
 async function fileExists(filePath: string): Promise<boolean> {
@@ -149,6 +150,7 @@ async function toBuildOptions(argv: BuildArgs): Promise<BuildArchiveOptions> {
     placeholderEmailDomain: argv.placeholderEmailDomain,
     slackMembers,
     meetingChats: (argv.meetingChats ?? 'fold') as MeetingChatMode,
+    membersChannel: argv.membersChannel || undefined,
     visibilityBySpace: argv.channelVisibility
       ? await loadVisibility(path.resolve(argv.channelVisibility))
       : undefined,
@@ -306,6 +308,12 @@ export const buildSlackArchiveCommand: CommandModule<object, BuildArgs> = {
         describe:
           'Snapshot from `slack-members`. People whose email matches an existing member merge into it; everyone else is emitted deactivated so the importer creates them without inviting or notifying anyone. Defaults to data/slack/members.json when present.',
         type: 'string',
+      })
+      .option('members-channel', {
+        describe:
+          'Add a private channel with this name listing every person, so Slack imports people who appear only in DMs. Empty string for none.',
+        type: 'string',
+        default: 'chat-import-members',
       })
       .option('channel-visibility', {
         describe:
