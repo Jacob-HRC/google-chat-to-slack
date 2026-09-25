@@ -287,8 +287,12 @@ function linkDriveCopy(
     return false;
   }
   const mb = Math.round(inDrive.size / 1024 ** 2);
+  // The Drive copy is shared by every message that posted the same bytes;
+  // show the name this message used.
+  const name =
+    record.drive?.name ?? record.contentName ?? record.fileName ?? inDrive.name;
   outcome.extraLines.push(
-    `📎 <${inDrive.webViewLink}|${inDrive.name}> (${mb} MB, too large for Slack; kept in Google Drive)`
+    `📎 <${inDrive.webViewLink}|${name}> (${mb} MB, too large for Slack; kept in Google Drive)`
   );
   ctx.fileCounts.linkOnly += 1;
   return true;
