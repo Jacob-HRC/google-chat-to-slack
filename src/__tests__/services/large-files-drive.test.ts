@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   audienceFor,
   DRIVE_THRESHOLD_BYTES,
+  receivedUpTo,
   selectLargeFiles,
 } from '../../services/large-files';
 import type { AttachmentRecord } from '../../types/export-store';
@@ -65,5 +66,15 @@ describe('files too large for Slack', () => {
         'hrc.email'
       )
     ).toEqual({ kind: 'domain', domain: 'hrc.email' });
+  });
+});
+
+describe('resumable upload bookkeeping', () => {
+  const res = (range: string | null) => ({
+    headers: { get: (name: string) => (name === 'range' ? range : null) },
+  });
+  it('resumes after the last byte the session reports, or from 0 if none', () => {
+    expect(receivedUpTo(res('bytes=0-67108863'))).toBe(67_108_864);
+    expect(receivedUpTo(res(null))).toBe(0);
   });
 });

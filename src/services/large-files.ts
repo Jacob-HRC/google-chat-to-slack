@@ -189,6 +189,94 @@ async function findUploaded(
     : undefined;
 }
 
+const MAX_CHUNK_RETRIES = 8;
+const RETRY_BASE_MS = 2000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Next byte to send after a 308. No Range header means the session holds
+ * nothing yet, so the upload starts over from 0.
+ */
+export function receivedUpTo(res: {
+  headers: { get(name: string): string | null };
+}): number {
+  const range = res.headers.get('range');
+  return range ? Number(range.split('-')[1]) + 1 : 0;
+}
+
+/** Asks a resumable session how much it holds, or returns the finished file. */
+async function queryUpload(
+  session: string,
+  size: number
+): Promise<{ offset: number; done?: { id: string; webViewLink: string } }> {
+  try {
+    const res = await fetch(session, {
+      method: 'PUT',
+      headers: { 'Content-Length': '0', 'Content-Range': `bytes */${size}` },
+    });
+    if (res.status === 200 || res.status === 201) {
+      const body = (await res.json()) as { id: string; webViewLink?: string };
+      return {
+        offset: size,
+        done: { id: body.id, webViewLink: body.webViewLink ?? '' },
+      };
+    }
+    return { offset: res.status === 308 ? receivedUpTo(res) : 0 };
+  } catch {
+    return { offset: 0 };
+  }
+}
+
+type ChunkResult =
+  | { kind: 'done'; file: { id: string; webViewLink: string } }
+  | { kind: 'more'; offset: number }
+  | { kind: 'retry'; reason: string }
+  | { kind: 'fatal'; reason: string };
+
+/** Sends one chunk and classifies the answer. Network errors, 5xx and 429 are retryable. */
+async function putChunk(
+  session: string,
+  localPath: string,
+  offset: number,
+  end: number,
+  size: number
+): Promise<ChunkResult> {
+  let res: Response;
+  try {
+    res = await fetch(session, {
+      method: 'PUT',
+      headers: {
+        'Content-Length': String(end - offset + 1),
+        'Content-Range': `bytes ${offset}-${end}/${size}`,
+      },
+      body: createReadStream(localPath, {
+        start: offset,
+        end,
+      }) as unknown as BodyInit,
+      duplex: 'half',
+    } as RequestInit);
+  } catch {
+    return { kind: 'retry', reason: 'network error' };
+  }
+  if (res.status === 200 || res.status === 201) {
+    const body = (await res.json()) as { id: string; webViewLink?: string };
+    return {
+      kind: 'done',
+      file: { id: body.id, webViewLink: body.webViewLink ?? '' },
+    };
+  }
+  if (res.status === 308) {
+    return { kind: 'more', offset: receivedUpTo(res) };
+  }
+  const reason = `HTTP ${res.status}`;
+  return res.status >= 500 || res.status === 429
+    ? { kind: 'retry', reason }
+    : { kind: 'fatal', reason };
+}
+
 /** Resumable upload in 64 MB chunks; files run to 20 GB. */
 async function uploadResumable(
   file: LargeFile,
@@ -222,31 +310,36 @@ async function uploadResumable(
     );
   }
   let offset = 0;
+  let failures = 0;
   while (offset < size) {
     const end = Math.min(offset + CHUNK_BYTES, size) - 1;
-    const chunk = createReadStream(file.localPath, { start: offset, end });
     // biome-ignore lint/nursery/noAwaitInLoop: chunks of one upload go in order.
-    const res = await fetch(session, {
-      method: 'PUT',
-      headers: {
-        'Content-Length': String(end - offset + 1),
-        'Content-Range': `bytes ${offset}-${end}/${size}`,
-      },
-      body: chunk as unknown as BodyInit,
-      duplex: 'half',
-    } as RequestInit);
-    if (res.status === 308) {
-      const range = res.headers.get('range');
-      offset = range ? Number(range.split('-')[1]) + 1 : end + 1;
+    const result = await putChunk(session, file.localPath, offset, end, size);
+    if (result.kind === 'done') {
+      return result.file;
+    }
+    if (result.kind === 'more') {
+      offset = result.offset;
+      failures = 0;
       continue;
     }
-    if (!res.ok) {
+    if (result.kind === 'fatal') {
       throw new Error(
-        `Upload of ${file.name} failed at byte ${offset}: HTTP ${res.status}`
+        `Upload of ${file.name} failed at byte ${offset}: ${result.reason}`
       );
     }
-    const body = (await res.json()) as { id: string; webViewLink?: string };
-    return { id: body.id, webViewLink: body.webViewLink ?? '' };
+    failures += 1;
+    if (failures > MAX_CHUNK_RETRIES) {
+      throw new Error(
+        `Upload of ${file.name} failed at byte ${offset} after ${MAX_CHUNK_RETRIES} retries (last: ${result.reason})`
+      );
+    }
+    await sleep(RETRY_BASE_MS * 2 ** (failures - 1));
+    const status = await queryUpload(session, size);
+    if (status.done) {
+      return status.done;
+    }
+    offset = status.offset;
   }
   throw new Error(`Upload of ${file.name} ended without a file id`);
 }

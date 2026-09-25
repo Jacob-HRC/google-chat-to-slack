@@ -8,10 +8,13 @@ import {
   openStore,
 } from '../../services/export-store';
 import {
+  type Audience,
   audienceFor,
   DRIVE_FOLDER_NAME,
   DRIVE_THRESHOLD_BYTES,
+  type DriveTarget,
   ensureFolder,
+  type LargeFile,
   type LargeFileLedger,
   selectLargeFiles,
   shareFile,
@@ -48,6 +51,50 @@ async function publicSpaces(file: string): Promise<Set<string>> {
   } catch {
     return new Set();
   }
+}
+
+interface UploadContext {
+  folderId: string;
+  target: DriveTarget;
+  ledger: LargeFileLedger;
+  ledgerPath: string;
+  audience: (spaceIds: string[]) => Audience;
+}
+
+/** Uploads each file, recording it as it lands; returns the names that failed. */
+async function uploadPending(
+  files: LargeFile[],
+  ctx: UploadContext
+): Promise<string[]> {
+  const failed: string[] = [];
+  let done = 0;
+  for (const file of files) {
+    const started = Date.now();
+    try {
+      // biome-ignore lint/nursery/noAwaitInLoop: uploads go one at a time.
+      const staged = await stageFile(file, ctx.folderId, ctx.target);
+      ctx.ledger[file.sha256] = {
+        fileId: staged.id,
+        webViewLink: staged.webViewLink,
+        name: file.name,
+        size: file.size,
+        keys: file.keys,
+        audience: ctx.audience(file.spaceIds),
+      };
+      await writeJsonAtomic(ctx.ledgerPath, ctx.ledger);
+      done += 1;
+      console.log(
+        `   ↑ ${file.name} (${(file.size / 1024 ** 2).toFixed(0)} MB) in ${Math.round((Date.now() - started) / 1000)} s · ${done}/${files.length}`
+      );
+    } catch (error) {
+      // One file must not stop the rest; a rerun picks it up.
+      failed.push(file.name);
+      console.error(
+        `   ✗ ${file.name}: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+  return failed;
 }
 
 export const stageLargeFilesCommand: CommandModule<object, StageArgs> = {
@@ -141,33 +188,26 @@ export const stageLargeFilesCommand: CommandModule<object, StageArgs> = {
         return;
       }
       const target = { subject: argv.subject, sharedDriveId: argv.sharedDrive };
+      const audience = (spaceIds: string[]): Audience =>
+        audienceFor(
+          spaceIds,
+          (id) => publicSet.has(id),
+          (id) => participants.get(id) ?? [],
+          argv.domain
+        );
       const folderId = await ensureFolder(target);
       console.log(
         `Drive folder: "${DRIVE_FOLDER_NAME}" (${folderId}), private until --share.`
       );
-      let done = 0;
-      for (const file of pending.slice(0, argv.limit ?? pending.length)) {
-        const started = Date.now();
-        // biome-ignore lint/nursery/noAwaitInLoop: uploads go one at a time.
-        const staged = await stageFile(file, folderId, target);
-        ledger[file.sha256] = {
-          fileId: staged.id,
-          webViewLink: staged.webViewLink,
-          name: file.name,
-          size: file.size,
-          keys: file.keys,
-          audience: audienceFor(
-            file.spaceIds,
-            (id) => publicSet.has(id),
-            (id) => participants.get(id) ?? [],
-            argv.domain
-          ),
-        };
-        await writeJsonAtomic(ledgerPath, ledger);
-        done += 1;
-        console.log(
-          `   ↑ ${file.name} (${(file.size / 1024 ** 2).toFixed(0)} MB) in ${Math.round((Date.now() - started) / 1000)} s · ${done}/${pending.length}`
+      const failed = await uploadPending(
+        pending.slice(0, argv.limit ?? pending.length),
+        { folderId, target, ledger, ledgerPath, audience }
+      );
+      if (failed.length > 0) {
+        console.error(
+          `${failed.length} file(s) failed; run the same command again to retry them.`
         );
+        process.exitCode = 1;
       }
       if (argv.share) {
         const unshared = Object.values(ledger).filter((s) => !s.sharedAt);
