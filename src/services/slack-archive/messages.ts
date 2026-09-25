@@ -44,6 +44,14 @@ export interface MessageBuildOptions {
   firstSeenAfterRun?: string;
   /** Only include messages created after this RFC 3339 time (delta archives). */
   messagesSince?: string;
+  /** Attachments moved to Google Drive (stage-large-files), by attachment key. */
+  driveCopies?: Record<string, DriveCopy>;
+}
+
+export interface DriveCopy {
+  name: string;
+  size: number;
+  webViewLink: string;
 }
 
 export interface MessageBuildContext {
@@ -268,6 +276,54 @@ function placeHostedFile(
   ctx.fileCounts.hosted += 1;
 }
 
+/** Links the Drive copy of a file too large for Slack; false if there is none. */
+function linkDriveCopy(
+  record: AttachmentRecord,
+  ctx: MessageBuildContext,
+  outcome: FileOutcome
+): boolean {
+  const inDrive = ctx.options.driveCopies?.[record.key];
+  if (!inDrive) {
+    return false;
+  }
+  const mb = Math.round(inDrive.size / 1024 ** 2);
+  outcome.extraLines.push(
+    `📎 <${inDrive.webViewLink}|${inDrive.name}> (${mb} MB, too large for Slack; kept in Google Drive)`
+  );
+  ctx.fileCounts.linkOnly += 1;
+  return true;
+}
+
+/** Manifest strategy: list the file for the post-import uploader. */
+function queueUpload(
+  record: AttachmentRecord,
+  ts: string,
+  threadTs: string | undefined,
+  userId: string,
+  ctx: MessageBuildContext
+): void {
+  ctx.uploads.push({
+    conversationId: ctx.plan.id,
+    conversationName: ctx.plan.name,
+    conversationKind: ctx.plan.kind,
+    ts,
+    threadTs,
+    userId,
+    attachmentKey: record.key,
+    localPath: record.localPath as string,
+    fileName: record.fileName ?? 'file',
+    title:
+      record.drive?.name ?? record.contentName ?? record.fileName ?? 'file',
+    mimeType:
+      record.exportedAs?.mimeType ??
+      record.contentType ??
+      'application/octet-stream',
+    size: record.size ?? 0,
+    sha256: record.sha256,
+    driveLink: record.drive?.webViewLink,
+  });
+}
+
 function handleAttachment(
   record: AttachmentRecord,
   message: StoredMessage,
@@ -282,30 +338,14 @@ function handleAttachment(
     record.localPath;
   const link = driveLinkText(record);
 
+  if (downloaded && linkDriveCopy(record, ctx, outcome)) {
+    return;
+  }
   if (downloaded) {
     if (ctx.options.fileStrategy === 'hosted') {
       placeHostedFile(record, message, ts, userId, ctx, outcome);
     } else {
-      ctx.uploads.push({
-        conversationId: ctx.plan.id,
-        conversationName: ctx.plan.name,
-        conversationKind: ctx.plan.kind,
-        ts,
-        threadTs,
-        userId,
-        attachmentKey: record.key,
-        localPath: record.localPath as string,
-        fileName: record.fileName ?? 'file',
-        title:
-          record.drive?.name ?? record.contentName ?? record.fileName ?? 'file',
-        mimeType:
-          record.exportedAs?.mimeType ??
-          record.contentType ??
-          'application/octet-stream',
-        size: record.size ?? 0,
-        sha256: record.sha256,
-        driveLink: record.drive?.webViewLink,
-      });
+      queueUpload(record, ts, threadTs, userId, ctx);
     }
     if (record.kind === 'DRIVE_FILE' && link) {
       outcome.extraLines.push(link);

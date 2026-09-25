@@ -174,3 +174,30 @@ describe('messages Slack would drop', () => {
     );
   });
 });
+
+describe('attachments moved to Google Drive', () => {
+  it('links the Drive copy instead of attaching the file', () => {
+    const message = stored('m3', '2025-01-01T10:00:00.000001Z', {
+      text: 'video',
+    });
+    message.attachmentKeys = ['vid'];
+    const ctx = contextFor({
+      vid: record('vid', 5 * 1024 ** 3, 'Conference.mp4'),
+    });
+    ctx.options.driveCopies = {
+      vid: {
+        name: 'Conference.mp4',
+        size: 5 * 1024 ** 3,
+        webViewLink: 'https://drive.google.com/file/d/X/view',
+      },
+    };
+    const built = buildConversationMessages([message], ctx);
+    const [only] = Object.values(built.days).flat();
+    expect(built.count).toBe(1);
+    expect(only.files).toBeUndefined();
+    expect(only.text).toContain(
+      '📎 <https://drive.google.com/file/d/X/view|Conference.mp4> (5120 MB, too large for Slack; kept in Google Drive)'
+    );
+    expect(ctx.hostedFiles).toEqual([]);
+  });
+});

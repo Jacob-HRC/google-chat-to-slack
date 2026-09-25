@@ -98,3 +98,8 @@ export function getDefaultSlackMembersFile(): string {
 export function getDefaultChannelVisibilityFile(): string {
   return join(getDataDirectory(), 'slack', 'channel-visibility.csv');
 }
+
+/** Record of attachments moved to Google Drive; see stage-large-files. */
+export function getDefaultLargeFilesLedger(): string {
+  return join(getDataDirectory(), 'slack', 'large-files.json');
+}

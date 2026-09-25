@@ -44,6 +44,23 @@ so steps 3 and 4 are done by hand. Everything around them is scripted.
       then store the User OAuth Token in the keyring as `slack-user` (or set
       `SLACK_USER_TOKEN`).
 
+## 0b. Move files too large for Slack to Google Drive
+
+Slack's importer never fetches files over about 100 MB (the pilot saw it take
+up to 62.6 MB) and refuses anything over 1 GB. Those go to a private Drive
+folder, once per distinct file, well before cutover (116 GB took hours):
+
+```bash
+node --max-old-space-size=6144 -r ts-node/register bin/googletoslack.ts stage-large-files --dry-run
+node --max-old-space-size=6144 -r ts-node/register bin/googletoslack.ts stage-large-files
+```
+
+Needs `https://www.googleapis.com/auth/drive.file` on the service account's
+domain-wide delegation. Reruns skip files already uploaded. The files stay
+private until announcement day, when `--share` grants access silently (no
+emails): domain-wide for files from public channels, otherwise each active
+participant of the conversations the file appeared in.
+
 ## 1. Build the archive
 
 Pick a random path segment so nobody can guess the file URLs:
@@ -58,6 +75,7 @@ node --max-old-space-size=6144 -r ts-node/register bin/googletoslack.ts \
   --placeholder-email-domain chat-archive.hrc.email \
   --deleted tombstone \
   --meeting-chats fold \
+  --large-files data/slack/large-files.json \
   --channel-visibility data/slack/channel-visibility.csv \
   --vault-prefix archive- \
   --users-overlay data/vault-exports/users-overlay.json \

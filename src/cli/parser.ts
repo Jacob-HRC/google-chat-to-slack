@@ -13,6 +13,7 @@ import { migrateCommand } from './commands/migrate';
 import { recoverNamesCommand } from './commands/recover-names';
 import { serveFilesCommand } from './commands/serve-files';
 import { slackMembersCommand } from './commands/slack-members';
+import { stageLargeFilesCommand } from './commands/stage-large-files';
 import { transformCommand } from './commands/transform';
 import { uploadFilesCommand } from './commands/upload-files';
 import { usersCommand } from './commands/users';
@@ -40,6 +41,7 @@ export function getParser() {
   parser.command(channelVisibilityCommand);
   parser.command(buildSlackArchiveCommand);
   parser.command(serveFilesCommand);
+  parser.command(stageLargeFilesCommand);
   parser.command(verifySlackCommand);
   parser.command(uploadFilesCommand);
 

@@ -53,6 +53,7 @@ import {
   type BuiltMessages,
   buildConversationMessages,
   type DeletedPolicy,
+  type DriveCopy,
   type FileStrategy,
   type MessageBuildContext,
 } from './messages';
@@ -89,6 +90,8 @@ export interface BuildArchiveOptions {
   usersOverlay?: UserOverlay;
   /** Reviewed public/private list; see visibility.ts. Overrides spaceVisibility. */
   visibilityBySpace?: Map<string, 'public' | 'private'>;
+  /** Attachments moved to Google Drive, by attachment key; see stage-large-files. */
+  driveCopies?: Record<string, DriveCopy>;
   /** What to do with Google Meet chats; see meeting-chats.ts. Default fold. */
   meetingChats?: MeetingChatMode;
 }
@@ -315,6 +318,7 @@ function messageContext(
       filesRoot: attachmentsFilesDir(options.storeDir),
       firstSeenAfterRun: options.firstSeenAfterRun,
       messagesSince: options.messagesSince,
+      driveCopies: options.driveCopies,
     },
     uploads: model.uploads,
     hostedFiles: model.hostedFiles,

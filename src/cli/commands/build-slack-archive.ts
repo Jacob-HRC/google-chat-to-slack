@@ -1,6 +1,7 @@
 import { access, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { CommandModule } from 'yargs';
+import type { LargeFileLedger } from '../../services/large-files';
 import type { UserOverlay } from '../../services/name-recovery';
 import {
   type BuildArchiveOptions,
@@ -10,6 +11,7 @@ import type { SpaceVisibility } from '../../services/slack-archive/conversations
 import type { MeetingChatMode } from '../../services/slack-archive/meeting-chats';
 import type {
   DeletedPolicy,
+  DriveCopy,
   FileStrategy,
 } from '../../services/slack-archive/messages';
 import type { SlackMemberSnapshot } from '../../services/slack-archive/slack-members';
@@ -61,6 +63,7 @@ type BuildArgs = {
   meetingChats?: string;
   channelVisibility?: string;
   membersChannel?: string;
+  largeFiles?: string;
 };
 
 async function fileExists(filePath: string): Promise<boolean> {
@@ -107,6 +110,29 @@ async function loadVisibility(
   return new Map(rows.map((r) => [r.spaceId, r.visibility]));
 }
 
+async function loadDriveCopies(
+  filePath: string
+): Promise<Record<string, DriveCopy>> {
+  const ledger = await readJsonFile<LargeFileLedger>(filePath);
+  if (!ledger) {
+    throw new Error(`--large-files ledger not found: ${filePath}`);
+  }
+  const byKey: Record<string, DriveCopy> = {};
+  for (const staged of Object.values(ledger)) {
+    for (const key of staged.keys) {
+      byKey[key] = {
+        name: staged.name,
+        size: staged.size,
+        webViewLink: staged.webViewLink,
+      };
+    }
+  }
+  console.log(
+    `Linking ${Object.keys(byKey).length} attachment(s) to their Google Drive copies (${filePath}).`
+  );
+  return byKey;
+}
+
 async function requireOverlay(filePath: string): Promise<UserOverlay> {
   const overlay = await readJsonFile<UserOverlay>(filePath);
   if (!overlay) {
@@ -151,6 +177,9 @@ async function toBuildOptions(argv: BuildArgs): Promise<BuildArchiveOptions> {
     slackMembers,
     meetingChats: (argv.meetingChats ?? 'fold') as MeetingChatMode,
     membersChannel: argv.membersChannel || undefined,
+    driveCopies: argv.largeFiles
+      ? await loadDriveCopies(path.resolve(argv.largeFiles))
+      : undefined,
     visibilityBySpace: argv.channelVisibility
       ? await loadVisibility(path.resolve(argv.channelVisibility))
       : undefined,
@@ -307,6 +336,11 @@ export const buildSlackArchiveCommand: CommandModule<object, BuildArgs> = {
       .option('slack-members', {
         describe:
           'Snapshot from `slack-members`. People whose email matches an existing member merge into it; everyone else is emitted deactivated so the importer creates them without inviting or notifying anyone. Defaults to data/slack/members.json when present.',
+        type: 'string',
+      })
+      .option('large-files', {
+        describe:
+          'Ledger from stage-large-files: attachments moved to Google Drive are linked instead of attached.',
         type: 'string',
       })
       .option('members-channel', {
