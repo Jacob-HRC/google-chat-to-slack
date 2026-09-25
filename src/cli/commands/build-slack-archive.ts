@@ -35,6 +35,9 @@ import {
 import { readJsonFile } from '../../utils/fs-atomic';
 import { makeRunId, parseRfc3339 } from '../../utils/timestamps';
 
+/** Stable made-up id for the Google Chat "workspace" the archive comes from. */
+const SOURCE_TEAM_ID = 'T0GCHAT0001';
+
 type BuildArgs = {
   input: string;
   output?: string;
@@ -129,7 +132,9 @@ async function toBuildOptions(argv: BuildArgs): Promise<BuildArchiveOptions> {
   const slackMembers = await loadSlackMembers(argv);
   return {
     storeDir: path.resolve(argv.input),
-    teamId: argv.teamId ?? slackMembers?.teamId ?? 'T0GCHAT0001',
+    // The archive's own source team. Never the destination's id: the export
+    // must not claim to come from the workspace it is imported into.
+    teamId: argv.teamId ?? SOURCE_TEAM_ID,
     spaceFilter: argv.space ?? [],
     excludeSpaces: argv.excludeSpace ?? [],
     skipBotDms: !argv.includeBotDms,
@@ -321,7 +326,7 @@ export const buildSlackArchiveCommand: CommandModule<object, BuildArgs> = {
       })
       .option('team-id', {
         describe:
-          'Team id written into users.json. Defaults to the id in the member snapshot.',
+          'Team id written into users.json for the source. Defaults to a fixed made-up id; must not be the destination workspace id.',
         type: 'string',
       })
       .example(
@@ -348,6 +353,14 @@ export const buildSlackArchiveCommand: CommandModule<object, BuildArgs> = {
       const options = await toBuildOptions(argv);
       const model = await buildArchiveModel(options);
       printArchiveReport(model, argv.dryRun ?? false);
+      if (
+        options.slackMembers &&
+        options.teamId === options.slackMembers.teamId
+      ) {
+        throw new Error(
+          `--team-id ${options.teamId} is the destination workspace; the archive must name a different source team`
+        );
+      }
       const existingNames =
         options.slackMembers?.channels?.map((c) => c.name) ?? [];
       const blocked = reportIssues(validateArchive(model, existingNames));
