@@ -197,6 +197,14 @@ function checkThreads(
       );
       continue;
     }
+    if (message.ts < parent.ts) {
+      add(
+        ctx,
+        'error',
+        where,
+        `reply ${message.ts} is dated before its parent ${parent.ts}`
+      );
+    }
     if (parent.thread_ts !== parent.ts) {
       add(
         ctx,

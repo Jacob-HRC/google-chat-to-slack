@@ -657,6 +657,21 @@ describe('archive from a fixture store', () => {
     const errors = validateArchive(broken, ['general']).map((i) => i.message);
     expect(errors.some((e) => e.includes('UNOBODY0000'))).toBe(true);
     expect(errors.some((e) => e.includes('missing parent'))).toBe(true);
+    const early = structuredClone(model);
+    const earlyGeneral = early.conversations.find(
+      (c) => c.plan.name === 'general'
+    );
+    const earlyReply = Object.values(earlyGeneral?.days ?? {})
+      .flat()
+      .find((m) => m.thread_ts && m.thread_ts !== m.ts);
+    if (earlyReply) {
+      earlyReply.ts = '1.000001';
+    }
+    expect(
+      validateArchive(early).some((i) =>
+        i.message.includes('dated before its parent')
+      )
+    ).toBe(true);
     expect(errors.some((e) => e.includes('share'))).toBe(true);
     expect(errors.some((e) => e.includes('already exists in Slack'))).toBe(
       true
