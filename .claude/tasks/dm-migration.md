@@ -495,3 +495,22 @@ channel) into HighRidge Church.
   (searched in:anywhere). All Slack mail went to the importing admin.
   Pending: prove +address delivery with one test message.
 - Next: Reverse Import (test undo), build v4 with fixes, re-import, verify.
+
+### Pilot v4 (2026-09-25)
+
+Reverse Import works (removes messages/files/channels; keeps created
+accounts, which the next import merges into). v4 with real dates, Meet links
+as text and large-file companions:
+- Test DM 14/14. Ken DM: 3,661 of 3,665 arrived at exact real timestamps
+  (history now starts Jan 2022). The 4 missing: the 2 large-file companions
+  (Slack never requests files over ~100 MB; it fetched up to 62.6 MB) and
+  their parent messages, which were file-only and became empty; fixed in
+  1c4f3f6.
+- Files: 567/569 in Slack. 203 byte-identical, 363 images re-encoded by
+  Slack (up to 27% smaller for WebP). verify-slack now counts those
+  separately.
+- Members unchanged; no email to the deactivated account (proven, and
+  +address delivery proven with a test message).
+- Hosting (Funnel 8443 + serve-files) turned off after the pilot.
+
+Open: plan for 399 files between 62 MB and 1 GB and 32 over 1 GB.
