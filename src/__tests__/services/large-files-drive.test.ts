@@ -41,8 +41,8 @@ describe('files too large for Slack', () => {
       d: rec('d', 'S1', 1000, 'sha-small'),
       e: rec('e', 'S1', BIG, 'sha-failed', 'failed'),
     });
-    expect(files.map((f) => f.sha256)).toEqual(['sha-other', 'sha-video']);
-    expect(files[1]).toMatchObject({
+    expect(files.map((f) => f.sha256)).toEqual(['sha-video', 'sha-other']);
+    expect(files[0]).toMatchObject({
       keys: ['a', 'b'],
       spaceIds: ['S1', 'S2'],
     });

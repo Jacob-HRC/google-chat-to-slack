@@ -101,7 +101,8 @@ export function selectLargeFiles(
       spaceIds: [record.spaceId],
     });
   }
-  return [...bySha.values()].sort((a, b) => b.size - a.size);
+  // Smallest first: quick early progress, and the huge ones cannot stall the rest.
+  return [...bySha.values()].sort((a, b) => a.size - b.size);
 }
 
 /**

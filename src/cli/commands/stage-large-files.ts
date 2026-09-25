@@ -94,7 +94,12 @@ export const stageLargeFilesCommand: CommandModule<object, StageArgs> = {
       })
       .option('subject', {
         describe:
-          'Admin whose Drive holds the files. Defaults to the configured admin.',
+          'Admin who uploads (and owns, in My Drive). Defaults to the configured admin.',
+        type: 'string',
+      })
+      .option('shared-drive', {
+        describe:
+          "Shared Drive id to hold the folder instead of the admin's My Drive. Every member of it can open every file. Needs the full drive scope.",
         type: 'string',
       })
       .strict(),
