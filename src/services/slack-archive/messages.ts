@@ -377,7 +377,17 @@ function fillBody(
   if (outcome.files.length > 0) {
     result.files = outcome.files;
   }
-  if (!(result.text || result.files || ctx.largeFiles?.has(ts))) {
+  const large = ctx.largeFiles?.get(ts) ?? [];
+  if (!result.text && large.length > 0) {
+    // The files move to a reply; the message itself must still say something.
+    result.text = large
+      .map(
+        (f) =>
+          `📎 ${f.title} (${Math.round(f.size / 1024 ** 2)} MB, in the reply below)`
+      )
+      .join('\n');
+  }
+  if (!(result.text || result.files)) {
     result.text = fallbackText(message);
   }
 }

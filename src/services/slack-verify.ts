@@ -200,10 +200,41 @@ export interface ConversationReport {
     extra: number;
     fileProblems: number;
     unthreaded: number;
+    /** Images whose size Slack changed on import (re-encoded, metadata stripped). Expected. */
+    imagesReencoded: number;
   };
 }
 
 const LIST_SHOWN = 20;
+
+/**
+ * Files of one message: undefined when they match, 'reencoded' when only
+ * images differ in size (Slack re-processes images on import), otherwise a
+ * description of the problem. Pure.
+ */
+export function compareFiles(
+  expected: MessageIndexConversation['messages'][number],
+  found: ActualMessage
+): string | undefined {
+  const want = expected.fileSizes ?? [];
+  if (want.length === 0) {
+    return;
+  }
+  if (found.fileSizes.length !== want.length) {
+    return `expected ${want.length} file(s), found ${found.fileSizes.length}`;
+  }
+  const sortedWant = [...want].sort((a, b) => a - b).join(',');
+  const sortedGot = [...found.fileSizes].sort((a, b) => a - b).join(',');
+  if (sortedWant === sortedGot) {
+    return;
+  }
+  const allImages =
+    (expected.fileTypes ?? []).length === want.length &&
+    (expected.fileTypes ?? []).every((t) => t.startsWith('image/'));
+  return allImages
+    ? 'reencoded'
+    : `expected sizes ${sortedWant}, found ${sortedGot}`;
+}
 
 /** Pure comparison of one conversation. */
 export function compareConversation(
@@ -216,6 +247,7 @@ export function compareConversation(
   const missing: string[] = [];
   const fileProblems: string[] = [];
   const unthreaded: string[] = [];
+  let imagesReencoded = 0;
   for (const message of expected.messages) {
     const found = actualByTs.get(message.ts);
     if (!found) {
@@ -225,12 +257,11 @@ export function compareConversation(
     if (message.threadTs && found.threadTs !== message.threadTs) {
       unthreaded.push(message.ts);
     }
-    const want = [...(message.fileSizes ?? [])].sort((a, b) => a - b);
-    const got = [...found.fileSizes].sort((a, b) => a - b);
-    if (want.length > 0 && want.join(',') !== got.join(',')) {
-      fileProblems.push(
-        `${message.ts}: expected sizes ${want.join(',')}, found ${got.join(',') || 'none'}`
-      );
+    const verdict = compareFiles(message, found);
+    if (verdict === 'reencoded') {
+      imagesReencoded += 1;
+    } else if (verdict) {
+      fileProblems.push(`${message.ts}: ${verdict}`);
     }
   }
   const extra = actual.filter((m) => !expectedTs.has(m.ts)).map((m) => m.ts);
@@ -254,6 +285,7 @@ export function compareConversation(
       extra: extra.length,
       fileProblems: fileProblems.length,
       unthreaded: unthreaded.length,
+      imagesReencoded,
     },
   };
 }

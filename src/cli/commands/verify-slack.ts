@@ -121,7 +121,13 @@ async function verifyOne(
     extra: [],
     fileProblems: [],
     unthreaded: [],
-    counts: { missing: 0, extra: 0, fileProblems: 0, unthreaded: 0 },
+    counts: {
+      missing: 0,
+      extra: 0,
+      fileProblems: 0,
+      unthreaded: 0,
+      imagesReencoded: 0,
+    },
   };
   if (!destination.channelId) {
     return { ...base, reason: destination.unreachable };
@@ -161,6 +167,12 @@ function printConversations(reports: ConversationReport[]): boolean {
     if (example) {
       console.log(`      e.g. ${example}`);
     }
+  }
+  const reencoded = reports.reduce((n, r) => n + r.counts.imagesReencoded, 0);
+  if (reencoded > 0) {
+    console.log(
+      `   · ${reencoded} image(s) re-encoded by Slack on import (size differs; expected, originals kept in the store)`
+    );
   }
   const reasons = new Map<string, number>();
   for (const report of reports.filter((r) => r.status === 'unverifiable')) {

@@ -14,6 +14,7 @@ import type {
   ArchiveUserMapping,
 } from '../../types/slack-export';
 
+const MOVED_FILE_LINE = /^📎 Drawings\.pdf \(\d+ MB, in the reply below\)$/;
 const USER: ArchiveUserMapping = {
   slackId: 'UAAAAAAAAA1',
   name: 'Pat',
@@ -59,6 +60,37 @@ function record(key: string, size: number, name: string): AttachmentRecord {
   } as AttachmentRecord;
 }
 
+function contextFor(
+  index: Record<string, AttachmentRecord>
+): MessageBuildContext {
+  return {
+    plan: {
+      kind: 'dm',
+      id: 'D1',
+      name: 'D1',
+      spaceId: 'S',
+      googleName: 'spaces/S',
+      googleDisplayName: '',
+      spaceType: 'DIRECT_MESSAGE',
+      members: ['UAAAAAAAAA1', 'UAAAAAAAAA2'],
+      creator: 'UAAAAAAAAA1',
+      created: 0,
+    },
+    users: new Map([['users/1', USER]]),
+    attachmentIndex: index,
+    options: {
+      deletedPolicy: 'tombstone',
+      fileStrategy: 'hosted',
+      filesBaseUrl: 'https://files.example.com/k',
+      filesRoot: '/files',
+    },
+    uploads: [],
+    hostedFiles: [],
+    warnings: [],
+    fileCounts: { hosted: 0, linkOnly: 0, unavailable: 0 },
+  };
+}
+
 describe('messages Slack would drop', () => {
   it('turns a bare Google Meet link card into text', () => {
     const meet = stored('m0', '2025-01-01T10:00:00.000001Z', {
@@ -80,6 +112,19 @@ describe('messages Slack would drop', () => {
     );
   });
 
+  it('keeps a line of text on a message whose only file moved to a reply', () => {
+    const message = stored('m2', '2025-01-01T10:00:00.000001Z');
+    message.attachmentKeys = ['big'];
+    const ctx = contextFor({
+      big: record('big', INLINE_FILE_MAX_BYTES + 1, 'Drawings.pdf'),
+    });
+    const all = Object.values(
+      buildConversationMessages([message], ctx).days
+    ).flat();
+    expect(all[0].text).toMatch(MOVED_FILE_LINE);
+    expect(all[1].thread_ts).toBe(all[0].ts);
+  });
+
   it('moves a large file onto a companion reply, and refuses files over 1 GB', () => {
     const message = stored('m1', '2025-01-01T10:00:00.000001Z', {
       text: 'drawings attached',
@@ -90,32 +135,7 @@ describe('messages Slack would drop', () => {
       small: record('small', 1000, 'note.txt'),
       huge: record('huge', SLACK_MAX_FILE_BYTES + 1, 'Conference.mp4'),
     };
-    const ctx: MessageBuildContext = {
-      plan: {
-        kind: 'dm',
-        id: 'D1',
-        name: 'D1',
-        spaceId: 'S',
-        googleName: 'spaces/S',
-        googleDisplayName: '',
-        spaceType: 'DIRECT_MESSAGE',
-        members: ['UAAAAAAAAA1', 'UAAAAAAAAA2'],
-        creator: 'UAAAAAAAAA1',
-        created: 0,
-      },
-      users: new Map([['users/1', USER]]),
-      attachmentIndex: index,
-      options: {
-        deletedPolicy: 'tombstone',
-        fileStrategy: 'hosted',
-        filesBaseUrl: 'https://files.example.com/k',
-        filesRoot: '/files',
-      },
-      uploads: [],
-      hostedFiles: [],
-      warnings: [],
-      fileCounts: { hosted: 0, linkOnly: 0, unavailable: 0 },
-    };
+    const ctx = contextFor(index);
     const built = buildConversationMessages([message], ctx);
     const all = Object.values(built.days).flat();
     expect(built.count).toBe(2);

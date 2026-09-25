@@ -80,6 +80,7 @@ function indexConversation(
       }
       if (message.files && message.files.length > 0) {
         entry.fileSizes = message.files.map((f) => f.size);
+        entry.fileTypes = message.files.map((f) => f.mimetype);
       }
       messages.push(entry);
     }

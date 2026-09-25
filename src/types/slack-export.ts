@@ -175,6 +175,8 @@ export interface MessageIndexEntry {
   threadTs?: string;
   /** Sizes of files attached by URL (hosted strategy). */
   fileSizes?: number[];
+  /** Their MIME types, in the same order; Slack re-encodes images on import. */
+  fileTypes?: string[];
 }
 
 export interface MessageIndexConversation {

@@ -10,6 +10,7 @@ import {
 } from '../../services/slack-destination';
 import {
   compareConversation,
+  compareFiles,
   compareMembers,
 } from '../../services/slack-verify';
 import type {
@@ -163,7 +164,13 @@ describe('compareConversation', () => {
       missing: ['1.000001'],
       extra: ['9.000001'],
       unthreaded: ['3.000001'],
-      counts: { missing: 1, extra: 1, fileProblems: 1, unthreaded: 1 },
+      counts: {
+        missing: 1,
+        extra: 1,
+        fileProblems: 1,
+        unthreaded: 1,
+        imagesReencoded: 0,
+      },
     });
     expect(report.fileProblems[0]).toContain('expected sizes 10,20');
   });
@@ -223,5 +230,21 @@ describe('resolveDestination', () => {
     expect(resolveDestination(noAddress, directory).unreachable).toContain(
       'no Slack account'
     );
+  });
+});
+
+describe('compareFiles', () => {
+  const found = (fileSizes: number[]) => ({ ts: '1.1', fileSizes });
+  it('accepts images Slack re-encoded, and flags anything else', () => {
+    const image = { ts: '1.1', fileSizes: [1000], fileTypes: ['image/png'] };
+    expect(compareFiles(image, found([1000]))).toBeUndefined();
+    expect(compareFiles(image, found([950]))).toBe('reencoded');
+    expect(compareFiles(image, found([]))).toContain('found 0');
+    const pdf = {
+      ts: '1.1',
+      fileSizes: [1000],
+      fileTypes: ['application/pdf'],
+    };
+    expect(compareFiles(pdf, found([950]))).toContain('expected sizes 1000');
   });
 });
