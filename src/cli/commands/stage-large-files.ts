@@ -34,6 +34,7 @@ type StageArgs = {
   dryRun?: boolean;
   limit?: number;
   subject?: string;
+  sharedDrive?: string;
 };
 
 const GB = 1024 ** 3;
@@ -134,7 +135,8 @@ export const stageLargeFilesCommand: CommandModule<object, StageArgs> = {
       if (argv.dryRun) {
         return;
       }
-      const folderId = await ensureFolder(argv.subject);
+      const target = { subject: argv.subject, sharedDriveId: argv.sharedDrive };
+      const folderId = await ensureFolder(target);
       console.log(
         `Drive folder: "${DRIVE_FOLDER_NAME}" (${folderId}), private until --share.`
       );
@@ -142,7 +144,7 @@ export const stageLargeFilesCommand: CommandModule<object, StageArgs> = {
       for (const file of pending.slice(0, argv.limit ?? pending.length)) {
         const started = Date.now();
         // biome-ignore lint/nursery/noAwaitInLoop: uploads go one at a time.
-        const staged = await stageFile(file, folderId, argv.subject);
+        const staged = await stageFile(file, folderId, target);
         ledger[file.sha256] = {
           fileId: staged.id,
           webViewLink: staged.webViewLink,
@@ -166,7 +168,7 @@ export const stageLargeFilesCommand: CommandModule<object, StageArgs> = {
         const unshared = Object.values(ledger).filter((s) => !s.sharedAt);
         for (const staged of unshared) {
           // biome-ignore lint/nursery/noAwaitInLoop: permissions one file at a time.
-          await shareFile(staged.fileId, staged.audience, argv.subject);
+          await shareFile(staged.fileId, staged.audience, target);
           staged.sharedAt = new Date().toISOString();
           await writeJsonAtomic(ledgerPath, ledger);
         }

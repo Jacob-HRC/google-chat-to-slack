@@ -55,8 +55,13 @@ node --max-old-space-size=6144 -r ts-node/register bin/googletoslack.ts stage-la
 node --max-old-space-size=6144 -r ts-node/register bin/googletoslack.ts stage-large-files
 ```
 
-Needs `https://www.googleapis.com/auth/drive.file` on the service account's
-domain-wide delegation. Reruns skip files already uploaded. The files stay
+Pass `--shared-drive <id>` to keep the folder in a Shared Drive rather than
+the admin's My Drive (and pass it again with `--share`). Every member of that
+Shared Drive can open every file, including attachments from private DMs, so
+choose one with few members. My Drive needs
+`https://www.googleapis.com/auth/drive.file` on the service account's
+domain-wide delegation; a Shared Drive needs
+`https://www.googleapis.com/auth/drive`. Reruns skip files already uploaded. The files stay
 private until announcement day, when `--share` grants access silently (no
 emails): domain-wide for files from public channels, otherwise each active
 participant of the conversations the file appeared in.

@@ -23,6 +23,16 @@ import { getScopedAuthClient } from './google-auth';
 export const DRIVE_FILE_SCOPES = [
   'https://www.googleapis.com/auth/drive.file',
 ] as const;
+/** A Shared Drive is not the app's own, so writing into it needs the full scope. */
+export const DRIVE_FULL_SCOPES = [
+  'https://www.googleapis.com/auth/drive',
+] as const;
+
+/** Where the folder lives: the admin's My Drive, or a Shared Drive by id. */
+export interface DriveTarget {
+  subject?: string;
+  sharedDriveId?: string;
+}
 
 /** Files above this go to Drive: the largest the pilot saw Slack accept. */
 export const DRIVE_THRESHOLD_BYTES = 62 * 1024 * 1024;
@@ -117,18 +127,33 @@ export function audienceFor(
   return { kind: 'people', emails: [...emails].sort() };
 }
 
-async function drive(subject?: string) {
-  const auth = await getScopedAuthClient(DRIVE_FILE_SCOPES, subject);
+async function drive(target: DriveTarget) {
+  const auth = await getScopedAuthClient(
+    target.sharedDriveId ? DRIVE_FULL_SCOPES : DRIVE_FILE_SCOPES,
+    target.subject
+  );
   return { client: google.drive({ version: 'v3', auth }), auth };
 }
 
+/** List parameters that search the right drive. */
+function listScope(target: DriveTarget): Record<string, unknown> {
+  return target.sharedDriveId
+    ? {
+        corpora: 'drive',
+        driveId: target.sharedDriveId,
+        includeItemsFromAllDrives: true,
+        supportsAllDrives: true,
+      }
+    : { spaces: 'drive' };
+}
+
 /** The archive folder, created on first use. drive.file only sees what this app made. */
-export async function ensureFolder(subject?: string): Promise<string> {
-  const { client } = await drive(subject);
+export async function ensureFolder(target: DriveTarget): Promise<string> {
+  const { client } = await drive(target);
   const found = await client.files.list({
     q: `name = '${DRIVE_FOLDER_NAME}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
     fields: 'files(id)',
-    spaces: 'drive',
+    ...listScope(target),
   });
   const id = found.data.files?.[0]?.id;
   if (id) {
@@ -138,8 +163,10 @@ export async function ensureFolder(subject?: string): Promise<string> {
     requestBody: {
       name: DRIVE_FOLDER_NAME,
       mimeType: 'application/vnd.google-apps.folder',
+      parents: target.sharedDriveId ? [target.sharedDriveId] : undefined,
     },
     fields: 'id',
+    supportsAllDrives: true,
   });
   return created.data.id as string;
 }
@@ -147,13 +174,13 @@ export async function ensureFolder(subject?: string): Promise<string> {
 /** A file this app already uploaded with these bytes, so reruns never duplicate. */
 async function findUploaded(
   sha256: string,
-  subject?: string
+  target: DriveTarget
 ): Promise<{ id: string; webViewLink: string } | undefined> {
-  const { client } = await drive(subject);
+  const { client } = await drive(target);
   const found = await client.files.list({
     q: `appProperties has { key='${APP_PROPERTY}' and value='${sha256}' } and trashed = false`,
     fields: 'files(id, webViewLink)',
-    spaces: 'drive',
+    ...listScope(target),
   });
   const file = found.data.files?.[0];
   return file?.id
@@ -165,13 +192,13 @@ async function findUploaded(
 async function uploadResumable(
   file: LargeFile,
   folderId: string,
-  subject?: string
+  target: DriveTarget
 ): Promise<{ id: string; webViewLink: string }> {
-  const { auth } = await drive(subject);
+  const { auth } = await drive(target);
   const { token } = await auth.getAccessToken();
   const { size } = await stat(file.localPath);
   const start = await fetch(
-    'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,webViewLink',
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id,webViewLink',
     {
       method: 'POST',
       headers: {
@@ -227,11 +254,11 @@ async function uploadResumable(
 export async function stageFile(
   file: LargeFile,
   folderId: string,
-  subject?: string
+  target: DriveTarget
 ): Promise<{ id: string; webViewLink: string }> {
   return (
-    (await findUploaded(file.sha256, subject)) ??
-    (await uploadResumable(file, folderId, subject))
+    (await findUploaded(file.sha256, target)) ??
+    (await uploadResumable(file, folderId, target))
   );
 }
 
@@ -239,13 +266,14 @@ export async function stageFile(
 export async function shareFile(
   fileId: string,
   audience: Audience,
-  subject?: string
+  target: DriveTarget
 ): Promise<void> {
-  const { client } = await drive(subject);
+  const { client } = await drive(target);
   if (audience.kind === 'domain') {
     await client.permissions.create({
       fileId,
       sendNotificationEmail: false,
+      supportsAllDrives: true,
       requestBody: {
         type: 'domain',
         role: 'reader',
@@ -260,6 +288,7 @@ export async function shareFile(
     await client.permissions.create({
       fileId,
       sendNotificationEmail: false,
+      supportsAllDrives: true,
       requestBody: { type: 'user', role: 'reader', emailAddress: email },
     });
   }
