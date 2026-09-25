@@ -22,6 +22,7 @@ import {
   toSlackTs,
 } from '../../utils/timestamps';
 import { slackIdFor } from './ids';
+import { migratedTime } from './migrated';
 import {
   fallbackText,
   messageText,
@@ -498,6 +499,30 @@ function linkThreads(
   }
 }
 
+/**
+ * A message as the archive should see it: for one re-dated by the earlier
+ * Slack-to-Google migration, the real time and the text without its
+ * "Message Posted" line. Its edit marker only records the migration, so it
+ * goes too. Native messages pass through unchanged. Pure.
+ */
+export function withRealTime(message: StoredMessage): StoredMessage {
+  const real = migratedTime(message);
+  if (!real) {
+    return message;
+  }
+  return {
+    ...message,
+    createTime: real.createTime,
+    slackTs: toSlackTs(real.createTime),
+    text: real.strip(message.text),
+    formattedText:
+      message.formattedText === undefined
+        ? undefined
+        : real.strip(message.formattedText),
+    lastUpdateTime: undefined,
+  };
+}
+
 /** A ts after `after` that no message in `taken` holds; registers it. */
 function freeTsAfter(after: string, taken: Set<string>): string {
   let micros = slackTsToMicros(after) + 1n;
@@ -564,13 +589,17 @@ export function buildConversationMessages(
   messages: StoredMessage[],
   ctx: MessageBuildContext
 ): BuiltMessages {
-  const included = messages.filter((m) => isIncluded(m, ctx.options));
+  // Delta cut-offs apply to Google's own times; everything after uses the
+  // real time of messages the earlier Slack-to-Google migration re-dated.
+  const included = messages
+    .filter((m) => isIncluded(m, ctx.options))
+    .map(withRealTime);
   const omitted = messages.length - included.length;
   const tsByName = assignUniqueTs(included);
   const firstUpload = ctx.uploads.length;
   const largeFiles = new Map<string, SlackExportFile[]>();
   ctx.largeFiles = largeFiles;
-  const byName = new Map(messages.map((m) => [m.name, m]));
+  const byName = new Map(messages.map((m) => [m.name, withRealTime(m)]));
   const items = included
     .sort((a, b) => compareTimestamps(a.createTime, b.createTime))
     .map((stored) => ({

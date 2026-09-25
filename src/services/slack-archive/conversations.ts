@@ -15,6 +15,7 @@ import type {
 } from '../../types/slack-export';
 import { toEpochMicros } from '../../utils/timestamps';
 import { mpimName, normalizeChannelName, slackIdFor, uniqueName } from './ids';
+import { effectiveCreateTime } from './migrated';
 
 export const MPIM_MAX_MEMBERS = 9;
 
@@ -114,10 +115,22 @@ function creatorOf(
   return members[0]?.mapping.slackId ?? '';
 }
 
+/**
+ * When the conversation began: the earlier of Google's creation time and its
+ * first message's real time. Spaces the Slack-to-Google migration created in
+ * 2024 hold messages from years before.
+ */
 function createdAt(input: ConversationInput): number {
-  const first = input.messages[0]?.createTime;
-  const fallback = epochSeconds(first, Math.floor(Date.now() / 1000));
-  return epochSeconds(input.space.raw.createTime ?? undefined, fallback);
+  const now = Math.floor(Date.now() / 1000);
+  const spaceCreated = epochSeconds(
+    input.space.raw.createTime ?? undefined,
+    now
+  );
+  const earliestMessage = input.messages.reduce(
+    (min, m) => Math.min(min, epochSeconds(effectiveCreateTime(m), now)),
+    now
+  );
+  return Math.min(spaceCreated, earliestMessage);
 }
 
 function base(
