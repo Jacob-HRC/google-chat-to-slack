@@ -121,6 +121,7 @@ async function verifyOne(
     extra: [],
     fileProblems: [],
     unthreaded: [],
+    counts: { missing: 0, extra: 0, fileProblems: 0, unthreaded: 0 },
   };
   if (!destination.channelId) {
     return { ...base, reason: destination.unreachable };
@@ -153,7 +154,7 @@ function printConversations(reports: ConversationReport[]): boolean {
     .filter((r) => r.status === 'mismatch')
     .slice(0, SHOWN)) {
     console.log(
-      `   ❌ ${report.name} (${report.kind}): ${report.found}/${report.expected} found · ${report.missing.length} missing · ${report.extra.length} extra · ${report.fileProblems.length} file problem(s) · ${report.unthreaded.length} out of thread`
+      `   ❌ ${report.name} (${report.kind}): ${report.found}/${report.expected} found · ${report.counts.missing} missing · ${report.counts.extra} extra · ${report.counts.fileProblems} file problem(s) · ${report.counts.unthreaded} out of thread`
     );
     const example =
       report.missing[0] ?? report.fileProblems[0] ?? report.unthreaded[0];

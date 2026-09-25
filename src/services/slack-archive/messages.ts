@@ -22,7 +22,12 @@ import {
   toSlackTs,
 } from '../../utils/timestamps';
 import { slackIdFor } from './ids';
-import { messageText, reactionShortName, type TextContext } from './text';
+import {
+  fallbackText,
+  messageText,
+  reactionShortName,
+  type TextContext,
+} from './text';
 
 export type DeletedPolicy = 'tombstone' | 'content' | 'omit';
 export type FileStrategy = 'manifest' | 'hosted';
@@ -49,6 +54,8 @@ export interface MessageBuildContext {
   hostedFiles: HostedFile[];
   warnings: string[];
   fileCounts: { hosted: number; linkOnly: number; unavailable: number };
+  /** Large hosted files by the ts of the message they belong to; see INLINE_FILE_MAX_BYTES. */
+  largeFiles?: Map<string, SlackExportFile[]>;
 }
 
 export interface BuiltMessages {
@@ -58,6 +65,16 @@ export interface BuiltMessages {
 }
 
 export const TOMBSTONE_TEXT = '_This message was deleted in Google Chat._';
+
+/**
+ * Largest file the pilot saw Slack's importer accept (62.6 MB). A 104 MB and
+ * a 153 MB file were rejected, and Slack dropped their whole messages, text
+ * included. Bigger files therefore ride on a companion reply of their own, so
+ * a rejection can only ever lose the file, never the message.
+ */
+export const INLINE_FILE_MAX_BYTES = 62 * 1024 * 1024;
+/** Slack refuses any upload over 1 GB, by import or by API. */
+export const SLACK_MAX_FILE_BYTES = 1024 * 1024 * 1024;
 const TRAILING_SLASHES_REGEX = /\/+$/;
 
 function textContext(ctx: MessageBuildContext): TextContext {
@@ -209,6 +226,47 @@ interface FileOutcome {
   extraLines: string[];
 }
 
+/** Hosted strategy: inline, on a companion reply, or refused (over 1 GB). */
+function placeHostedFile(
+  record: AttachmentRecord,
+  message: StoredMessage,
+  ts: string,
+  userId: string,
+  ctx: MessageBuildContext,
+  outcome: FileOutcome
+): void {
+  const size = record.size ?? 0;
+  if (size > SLACK_MAX_FILE_BYTES) {
+    const label = record.drive?.name ?? record.contentName ?? record.fileName;
+    const gb = (size / 1024 ** 3).toFixed(1);
+    outcome.extraLines.push(
+      `_[${label} (${gb} GB) is larger than Slack accepts and was not imported.]_`
+    );
+    ctx.fileCounts.unavailable += 1;
+    ctx.warnings.push(
+      `${message.name}: ${label} is ${gb} GB, over Slack's 1 GB limit`
+    );
+    return;
+  }
+  const file = toExportFile(record, ts, userId, ctx.options);
+  if (size > INLINE_FILE_MAX_BYTES && ctx.largeFiles) {
+    ctx.largeFiles.set(ts, [...(ctx.largeFiles.get(ts) ?? []), file]);
+  } else {
+    outcome.files.push(file);
+  }
+  ctx.hostedFiles.push({
+    url: file.url_private,
+    localPath: record.localPath as string,
+    fileName: file.name,
+    mimeType: file.mimetype,
+    size: file.size,
+    sha256: record.sha256,
+    conversationName: ctx.plan.name,
+    ts,
+  });
+  ctx.fileCounts.hosted += 1;
+}
+
 function handleAttachment(
   record: AttachmentRecord,
   message: StoredMessage,
@@ -225,19 +283,7 @@ function handleAttachment(
 
   if (downloaded) {
     if (ctx.options.fileStrategy === 'hosted') {
-      const file = toExportFile(record, ts, userId, ctx.options);
-      outcome.files.push(file);
-      ctx.hostedFiles.push({
-        url: file.url_private,
-        localPath: record.localPath as string,
-        fileName: file.name,
-        mimeType: file.mimetype,
-        size: file.size,
-        sha256: record.sha256,
-        conversationName: ctx.plan.name,
-        ts,
-      });
-      ctx.fileCounts.hosted += 1;
+      placeHostedFile(record, message, ts, userId, ctx, outcome);
     } else {
       ctx.uploads.push({
         conversationId: ctx.plan.id,
@@ -307,6 +353,34 @@ function quotedTextFor(
   return author ? `*${author}:* ${body}` : body;
 }
 
+/** Text and files of one message; never leaves it empty (Slack drops those). */
+function fillBody(
+  result: SlackExportMessage,
+  message: StoredMessage,
+  byName: Map<string, StoredMessage>,
+  userId: string,
+  ctx: MessageBuildContext
+): void {
+  const { ts } = result;
+  const quoted = quotedTextFor(message, byName, ctx);
+  const lines = [messageText(message, textContext(ctx), quoted)];
+  const outcome: FileOutcome = { files: [], extraLines: [] };
+  for (const key of message.attachmentKeys) {
+    const record = ctx.attachmentIndex[key];
+    if (record) {
+      handleAttachment(record, message, ts, undefined, userId, ctx, outcome);
+    }
+  }
+  lines.push(...outcome.extraLines);
+  result.text = lines.filter((line) => line.length > 0).join('\n');
+  if (outcome.files.length > 0) {
+    result.files = outcome.files;
+  }
+  if (!(result.text || result.files || ctx.largeFiles?.has(ts))) {
+    result.text = fallbackText(message);
+  }
+}
+
 function buildOne(
   message: StoredMessage,
   ts: string,
@@ -343,22 +417,7 @@ function buildOne(
     return result;
   }
 
-  const quoted = quotedTextFor(message, byName, ctx);
-  const lines = [messageText(message, textContext(ctx), quoted)];
-  const outcome: FileOutcome = { files: [], extraLines: [] };
-  for (const key of message.attachmentKeys) {
-    const record = ctx.attachmentIndex[key];
-    if (record) {
-      handleAttachment(record, message, ts, undefined, userId, ctx, outcome);
-    }
-  }
-  if (outcome.extraLines.length > 0) {
-    lines.push(...outcome.extraLines);
-  }
-  result.text = lines.filter((line) => line.length > 0).join('\n');
-  if (outcome.files.length > 0) {
-    result.files = outcome.files;
-  }
+  fillBody(result, message, byName, userId, ctx);
   if (message.lastUpdateTime && !message.isDeleted) {
     result.edited = { user: userId, ts: toSlackTs(message.lastUpdateTime) };
   }
@@ -439,6 +498,67 @@ function linkThreads(
   }
 }
 
+/** A ts after `after` that no message in `taken` holds; registers it. */
+function freeTsAfter(after: string, taken: Set<string>): string {
+  let micros = slackTsToMicros(after) + 1n;
+  while (taken.has(microsToSlackTs(micros))) {
+    micros += 1n;
+  }
+  const ts = microsToSlackTs(micros);
+  taken.add(ts);
+  return ts;
+}
+
+/**
+ * Posts each large file as its own reply in the thread of the message it
+ * belonged to (starting a thread when there was none). Mutates the thread
+ * parents' reply metadata; returns the companion messages.
+ */
+function attachLargeFiles(
+  built: SlackExportMessage[],
+  largeFiles: Map<string, SlackExportFile[]>
+): SlackExportMessage[] {
+  const byTs = new Map(built.map((m) => [m.ts, m]));
+  const taken = new Set(byTs.keys());
+  const companions: SlackExportMessage[] = [];
+  for (const [ts, files] of largeFiles) {
+    const owner = byTs.get(ts);
+    if (!owner) {
+      continue;
+    }
+    const parentTs =
+      owner.thread_ts && owner.thread_ts !== owner.ts
+        ? owner.thread_ts
+        : owner.ts;
+    const parent = byTs.get(parentTs) ?? owner;
+    for (const file of files) {
+      const reply: SlackExportMessage = {
+        type: 'message',
+        ts: freeTsAfter(ts, taken),
+        user: owner.user,
+        user_profile: owner.user_profile,
+        text: `📎 ${file.title}`,
+        files: [file],
+        thread_ts: parentTs,
+        parent_user_id: parent.user,
+      };
+      companions.push(reply);
+      parent.thread_ts = parentTs;
+      parent.reply_count = (parent.reply_count ?? 0) + 1;
+      parent.replies = [
+        ...(parent.replies ?? []),
+        { user: reply.user ?? '', ts: reply.ts },
+      ].sort((a, b) => a.ts.localeCompare(b.ts));
+      parent.reply_users = [
+        ...new Set([...(parent.reply_users ?? []), reply.user ?? '']),
+      ].filter(Boolean);
+      parent.reply_users_count = parent.reply_users.length;
+      parent.latest_reply = parent.replies.at(-1)?.ts;
+    }
+  }
+  return companions;
+}
+
 /** Builds all day files for one conversation. */
 export function buildConversationMessages(
   messages: StoredMessage[],
@@ -448,6 +568,8 @@ export function buildConversationMessages(
   const omitted = messages.length - included.length;
   const tsByName = assignUniqueTs(included);
   const firstUpload = ctx.uploads.length;
+  const largeFiles = new Map<string, SlackExportFile[]>();
+  ctx.largeFiles = largeFiles;
   const byName = new Map(messages.map((m) => [m.name, m]));
   const items = included
     .sort((a, b) => compareTimestamps(a.createTime, b.createTime))
@@ -456,15 +578,22 @@ export function buildConversationMessages(
       built: buildOne(stored, tsByName.get(stored.name) as string, byName, ctx),
     }));
   linkThreads(items, ctx.uploads.slice(firstUpload));
+  const companions = attachLargeFiles(
+    items.map((i) => i.built),
+    largeFiles
+  );
 
   const days: Record<string, SlackExportMessage[]> = {};
-  for (const item of items) {
-    const day = dayOf(item.built.ts);
+  for (const built of [...items.map((i) => i.built), ...companions]) {
+    const day = dayOf(built.ts);
     const bucket = days[day] ?? [];
-    bucket.push(item.built);
+    bucket.push(built);
     days[day] = bucket;
   }
-  return { days, count: items.length, omitted };
+  for (const bucket of Object.values(days)) {
+    bucket.sort((a, b) => a.ts.localeCompare(b.ts));
+  }
+  return { days, count: items.length + companions.length, omitted };
 }
 
 export function kindLabel(kind: ArchiveConversationKind): string {

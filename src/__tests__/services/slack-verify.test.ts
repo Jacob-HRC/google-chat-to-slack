@@ -163,6 +163,7 @@ describe('compareConversation', () => {
       missing: ['1.000001'],
       extra: ['9.000001'],
       unthreaded: ['3.000001'],
+      counts: { missing: 1, extra: 1, fileProblems: 1, unthreaded: 1 },
     });
     expect(report.fileProblems[0]).toContain('expected sizes 10,20');
   });

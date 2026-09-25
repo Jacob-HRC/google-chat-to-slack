@@ -8,6 +8,7 @@
 import { which as emojiWhich } from 'node-emoji';
 import type { StoredMessage, StoredReaction } from '../../types/export-store';
 
+const SCHEME_REGEX = /^https?:\/\//;
 const TOKEN_REGEX = /<[^<>]*>/g;
 const USER_TOKEN_REGEX = /^<users\/([^>|]+)(?:\|[^>]*)?>$/;
 const LINK_TOKEN_REGEX = /^<(https?:\/\/[^|>\s]+)(?:\|([^>]*))?>$/;
@@ -106,6 +107,39 @@ export function messageText(
     .map((line) => `> ${line}`)
     .join('\n');
   return body ? `${quote}\n${body}` : quote;
+}
+
+interface RichLinkAnnotation {
+  type?: string | null;
+  richLinkMetadata?: {
+    uri?: string | null;
+    richLinkType?: string | null;
+  } | null;
+}
+
+/**
+ * Text for a message whose body is empty, so Slack never receives an empty
+ * message (it silently drops those). A shared Google Meet link arrives as a
+ * link card with no text at all; that is the common case.
+ */
+export function fallbackText(message: StoredMessage): string {
+  const annotations = (message.raw.annotations ?? []) as RichLinkAnnotation[];
+  const lines: string[] = [];
+  for (const annotation of annotations) {
+    const uri = annotation.richLinkMetadata?.uri;
+    if (annotation.type !== 'RICH_LINK' || !uri) {
+      continue;
+    }
+    const label = uri.replace(SCHEME_REGEX, '').split('?')[0];
+    lines.push(
+      annotation.richLinkMetadata?.richLinkType === 'MEET_SPACE'
+        ? `📹 Google Meet: <${uri}|${label}>`
+        : `🔗 <${uri}|${label}>`
+    );
+  }
+  return lines.length > 0
+    ? lines.join('\n')
+    : '_(This Google Chat message had no text or file that could be carried over.)_';
 }
 
 /** Slack reaction short name for a stored reaction, or undefined if unknown. */

@@ -194,6 +194,13 @@ export interface ConversationReport {
   fileProblems: string[];
   /** Replies that arrived outside their thread. */
   unthreaded: string[];
+  /** Full counts; the lists above hold at most LIST_SHOWN examples each. */
+  counts: {
+    missing: number;
+    extra: number;
+    fileProblems: number;
+    unthreaded: number;
+  };
 }
 
 const LIST_SHOWN = 20;
@@ -242,6 +249,12 @@ export function compareConversation(
     extra: extra.slice(0, LIST_SHOWN),
     fileProblems: fileProblems.slice(0, LIST_SHOWN),
     unthreaded: unthreaded.slice(0, LIST_SHOWN),
+    counts: {
+      missing: missing.length,
+      extra: extra.length,
+      fileProblems: fileProblems.length,
+      unthreaded: unthreaded.length,
+    },
   };
 }
 
