@@ -473,3 +473,25 @@ hash mismatches. Two causes:
 
 Failed downloads that cannot be fixed on our side: 1,155 Drive files since
 deleted, 266 Docs Google refused to export (size limit), 4 × 404.
+
+### Pilot result (2026-09-25)
+
+Imported slack-pilot-ken-v3 (Jacob–Ken DM, Jacob–test-account DM, members
+channel) into HighRidge Church.
+
+- v1/v2 failed at 0% with no user-mapping step: a DM-only archive imports
+  no people (Slack takes people from channel membership). Fixed by the
+  members channel (c07db70). Source team id fixed too (681ee40).
+- Slack's importer DOES fetch hosted files: Slackbot 1.0 from AWS fetched
+  569/571 over ~30 min, all 200. Largest accepted 62.6 MB; 104 MB and 153 MB
+  rejected, and Slack dropped those whole messages. Fixed: large files go
+  on companion replies (4ebaec5).
+- 27 Google Meet link cards were empty messages and Slack dropped them
+  (1,709 empty messages store-wide, 1,458 Meet links). Fixed (4ebaec5).
+- ts preserved exactly; threads intact; images a few % smaller in Slack
+  (re-encoded or metadata stripped).
+- Members: existing unchanged; test account created deactivated.
+- "Import as deactivated" sent NO email to jacob+slacktest@hrc.email
+  (searched in:anywhere). All Slack mail went to the importing admin.
+  Pending: prove +address delivery with one test message.
+- Next: Reverse Import (test undo), build v4 with fixes, re-import, verify.
