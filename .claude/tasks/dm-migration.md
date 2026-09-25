@@ -514,3 +514,9 @@ as text and large-file companions:
 - Hosting (Funnel 8443 + serve-files) turned off after the pilot.
 
 Open: plan for 399 files between 62 MB and 1 GB and 32 over 1 GB.
+
+### Large files in Drive (2026-09-25)
+318/318 distinct files (124.7 GB) uploaded to IT Backups, folder "Google Chat
+attachments (archive)"; every sha256 matches Drive's checksum. Not shared.
+One run stopped on an HTTP 502 before retries existed (917b0ee); the rerun
+resumed cleanly.
