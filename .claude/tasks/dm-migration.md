@@ -452,3 +452,24 @@ message is missing from the merge result. Repair: export-workspace with
 = form). Replies are still in Google, so they come back in full; edit history
 recorded for replies before the loss is not recoverable. Files were already
 on disk and are not re-downloaded.
+
+### Attachment overwrites: found and repaired (2026-09-24)
+
+verify --export --no-live (hashes every file, ~13 min; the default --live
+re-lists everything from Google and takes as long as an export) found 169
+hash mismatches. Two causes:
+
+- Bug: files were saved as <message>/<original name>, so two pasted
+  screenshots named image.png in one message overwrote each other. 106
+  Chat API uploads and 36 Vault-extracted files. Fixed in e8b9bb4 (downloads
+  claim unique paths, "image (2).png") and in the Vault importer (never
+  overwrite different bytes). Repaired: the 106 re-downloaded by an export of
+  their 34 conversations; the 36 re-extracted from the mbox with
+  repairVaultAttachments() (keys follow the importer's fixed numbering).
+  Index backup: attachments/index.json.bak-20260924-overwrite-fix.
+- Harmless: 119 Google Docs/Sheets attached and linked in the same message,
+  exported twice; the bytes differ by export timestamp. Records re-synced to
+  the file on disk.
+
+Failed downloads that cannot be fixed on our side: 1,155 Drive files since
+deleted, 266 Docs Google refused to export (size limit), 4 × 404.

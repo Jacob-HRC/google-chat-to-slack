@@ -21,7 +21,7 @@ import type {
   StoredSpace,
   StoredUser,
 } from '../../types/export-store';
-import { safeFilename } from '../../utils/fs-atomic';
+import { digestFile, fileExists, safeFilename } from '../../utils/fs-atomic';
 import type { Logger } from '../../utils/logger';
 import { compareTimestamps, toSlackTs } from '../../utils/timestamps';
 import {
@@ -59,6 +59,12 @@ export interface VaultImportOptions {
   dryRun: boolean;
   /** Import even into Spaces that already hold Chat API messages. Off by default. */
   allowApiSpaces: boolean;
+  /**
+   * Repair mode: write out only the attachments with these keys (and record
+   * nothing else). Keys follow the importer's own numbering, which is fixed
+   * by the order of the mbox, so re-streaming it finds the same parts.
+   */
+  repairKeys?: ReadonlySet<string>;
   /** Only these space ids. Empty means all. */
   spaceFilter: string[];
   logger: Logger;
@@ -240,6 +246,22 @@ interface SpaceAccumulator {
  * released immediately afterwards; holding 3 GB of attachments in memory is
  * what an earlier version got wrong.
  */
+async function freePath(wanted: string, sha256: string): Promise<string> {
+  const { dir, name, ext } = path.parse(wanted);
+  let candidate = wanted;
+  for (let n = 2; ; n += 1) {
+    // biome-ignore lint/nursery/noAwaitInLoop: probes a handful of names.
+    if (!(await fileExists(candidate))) {
+      return candidate;
+    }
+    const existing = await digestFile(candidate);
+    if (existing.sha256 === sha256) {
+      return candidate;
+    }
+    candidate = path.join(dir, `${name} (${n})${ext}`);
+  }
+}
+
 async function writeAttachment(
   store: ExportStore,
   spaceId: string,
@@ -249,15 +271,21 @@ async function writeAttachment(
   index: number,
   dryRun: boolean
 ): Promise<AttachmentRecord> {
-  const fileName = safeFilename(originalName, `vault-file-${index}`);
   const dir = path.join(
     attachmentsFilesDir(store.rootDir),
     spaceId,
     'vault',
     safeFilename(messageId, 'msg')
   );
-  const localPath = path.join(dir, fileName);
   const sha256 = createHash('sha256').update(body).digest('hex');
+  // Two parts with the same name (pasted screenshots are all image.png) must
+  // not overwrite each other: take the first name whose file is absent or
+  // already holds these exact bytes.
+  const localPath = await freePath(
+    path.join(dir, safeFilename(originalName, `vault-file-${index}`)),
+    sha256
+  );
+  const fileName = path.basename(localPath);
   if (!dryRun) {
     await mkdir(dir, { recursive: true });
     await writeFile(localPath, body);
@@ -476,6 +504,10 @@ async function absorbDocument(
     for (const partIndex of indices) {
       names.add(partNames[partIndex]);
       accumulator.attachmentSeq += 1;
+      const key = `${accumulator.spaceId}/${messageId}/vault-${accumulator.attachmentSeq}`;
+      if (options.repairKeys && !options.repairKeys.has(key)) {
+        continue;
+      }
       // biome-ignore lint/nursery/noAwaitInLoop: files are written one at a time so bodies are released.
       const record = await writeAttachment(
         store,
@@ -594,6 +626,28 @@ function emptyReport(
       messagesWithoutTimestamp: read.withoutTimestamp,
     },
   };
+}
+
+/**
+ * Re-extracts named attachments from the mbox into their own files and
+ * updates their index records. Messages are left alone.
+ */
+export async function repairVaultAttachments(
+  store: ExportStore,
+  options: VaultImportOptions & { repairKeys: ReadonlySet<string> }
+): Promise<AttachmentRecord[]> {
+  const read = await readExport(store, options, new Set());
+  const repaired = [...read.accumulators.values()].flatMap(
+    (a) => a.attachments
+  );
+  if (!options.dryRun && repaired.length > 0) {
+    const index = await loadAttachmentIndex(store);
+    for (const record of repaired) {
+      index[record.key] = record;
+    }
+    await saveAttachmentIndex(store, index);
+  }
+  return repaired;
 }
 
 /** Reads the export end to end and merges it into the store. */
