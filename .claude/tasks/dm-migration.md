@@ -520,3 +520,12 @@ Open: plan for 399 files between 62 MB and 1 GB and 32 over 1 GB.
 attachments (archive)"; every sha256 matches Drive's checksum. Not shared.
 One run stopped on an HTTP 502 before retries existed (917b0ee); the rerun
 resumed cleanly.
+
+### Pilot v5 (2026-09-25): clean
+
+Real dates, Meet links as text, large files as Drive links. verify-slack:
+members unchanged, all 3 people as planned; test DM and members channel
+match; Ken DM 0 missing (6 extra are live Slack messages), 351 images
+re-encoded by Slack, 1 generic-typed JPEG re-encoded (Model#.jpg). The two
+big PDFs show as Drive links in their original messages. Hosting off.
+Pilot left in place for now; reverse before the full import.
