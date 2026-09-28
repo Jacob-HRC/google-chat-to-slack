@@ -82,3 +82,81 @@ export async function archivePublicChannel(
     return errorCode(error) === 'already_archived' ? 'already' : 'failed';
   }
 }
+
+export interface ChannelRef {
+  id: string;
+  isArchived: boolean;
+}
+
+export interface ConnectedMember {
+  slackId: string;
+  client: WebClient;
+}
+
+/** Private channels one person is in, by name. */
+export async function privateChannelsOf(
+  client: WebClient
+): Promise<Map<string, ChannelRef>> {
+  const byName = new Map<string, ChannelRef>();
+  let cursor: string | undefined;
+  do {
+    // biome-ignore lint/nursery/noAwaitInLoop: pagination is sequential.
+    const page = await client.users.conversations({
+      types: 'private_channel',
+      exclude_archived: false,
+      limit: 1000,
+      cursor,
+    });
+    for (const channel of page.channels ?? []) {
+      if (channel.id && channel.name) {
+        byName.set(channel.name, {
+          id: channel.id,
+          isArchived: Boolean(channel.is_archived),
+        });
+      }
+    }
+    cursor = page.response_metadata?.next_cursor || undefined;
+  } while (cursor);
+  return byName;
+}
+
+/**
+ * For each private channel, the first connected person who is in it. Slack
+ * credits the archive to them ("… archived this channel"). Pure.
+ */
+export function pickArchivers(
+  names: string[],
+  membership: Array<{
+    person: ConnectedMember;
+    channels: Map<string, ChannelRef>;
+  }>
+): Map<string, { person: ConnectedMember; channel: ChannelRef }> {
+  const picked = new Map<
+    string,
+    { person: ConnectedMember; channel: ChannelRef }
+  >();
+  for (const name of names) {
+    const found = membership.find((m) => m.channels.has(name));
+    const channel = found?.channels.get(name);
+    if (found && channel) {
+      picked.set(name, { person: found.person, channel });
+    }
+  }
+  return picked;
+}
+
+/** Archives a private channel with a member's own token. */
+export async function archiveAsMember(
+  client: WebClient,
+  channel: ChannelRef
+): Promise<ArchiveOutcome> {
+  if (channel.isArchived) {
+    return 'already';
+  }
+  try {
+    await client.conversations.archive({ channel: channel.id });
+    return 'archived';
+  } catch (error) {
+    return errorCode(error) === 'already_archived' ? 'already' : 'failed';
+  }
+}

@@ -18,7 +18,10 @@ import { WebClient } from '@slack/web-api';
 import { readJsonFile, writeJsonAtomic } from '../utils/fs-atomic';
 import { getToken, setToken } from '../utils/token-manager';
 
-/** What a connected person's token may do: react, and tidy their own messages. */
+/**
+ * What a connected person's token may do: react, tidy their own messages,
+ * and archive quiet private channels they are in (see archive-channels).
+ */
 export const RESTORE_USER_SCOPES = [
   'reactions:write',
   'chat:write',
@@ -30,6 +33,7 @@ export const RESTORE_USER_SCOPES = [
   'groups:history',
   'im:history',
   'mpim:history',
+  'groups:write',
 ] as const;
 
 export interface ConnectedUser {

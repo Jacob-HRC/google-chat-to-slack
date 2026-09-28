@@ -166,8 +166,12 @@ pnpm start archive-channels --archive data/slack-archive/hrc-full.zip
 ```
 
 The bot joins and archives each public channel marked `archive=yes` (the app
-needs `channels:manage`). It cannot join private channels, so those are
-written to `hrc-full.archive-private.txt` for an admin to archive by hand.
+needs `channels:manage`). It cannot join private channels, so each of those is
+archived with the token of a member who approved the app for the reaction
+restore (step 6; the approval includes `groups:write`). Slack shows that
+member as having archived the channel. Run it again after the announcement as
+people approve; whatever no connected member can reach is listed in
+`hrc-full.archive-private.txt`.
 
 Then turn Funnel off and stop the server:
 

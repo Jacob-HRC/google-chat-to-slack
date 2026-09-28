@@ -64,6 +64,9 @@ oauth_config:
       # reactions:write and the channels:* pair are for restore-reactions:
       # each person re-adds their own reactions, in public channels too, and
       # chat:write lets an author tidy the text reaction line on their message.
+      # groups:write lets archive-channels archive a quiet private channel
+      # with the token of someone in it (the bot cannot join private ones).
+      - groups:write
       - reactions:write
       - channels:read
       - channels:history
