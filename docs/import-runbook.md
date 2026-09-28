@@ -221,6 +221,9 @@ first.
   pilot, build the full archive with `--exclude-space <id>` so it isn't
   imported twice. Whether Slack de-duplicates a re-imported DM isn't
   documented. Don't rely on it.
+- After a Reverse Import and a re-import of the same archive, the desktop app
+  can keep showing the reversed copies of files as "This file was deleted".
+  Reload the app (Cmd+Shift+R) before assuming anything is missing.
 - Later deltas: `--first-seen-after <runId>` or `--messages-since <time>`.
   Private channels can't be merged into, so a delta for a private channel
   arrives as a new channel. Deltas are clean for DMs only if Slack appends to
