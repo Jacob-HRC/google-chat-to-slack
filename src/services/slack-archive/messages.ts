@@ -139,6 +139,27 @@ function dayOf(ts: string): string {
   return new Date(seconds * 1000).toISOString().slice(0, 10);
 }
 
+/** Marks the line so a later restore of real reactions can find it. */
+export const REACTION_LINE_PREFIX = '_Reactions: ';
+
+/**
+ * `_Reactions: :+1: Ken Kicker · :heart: Jacob Neudorf, Ken Kicker_`. Pure
+ * apart from reading names from the context.
+ */
+export function reactionLine(
+  reactions: SlackExportReaction[],
+  ctx: MessageBuildContext
+): string {
+  const names = new Map(
+    [...ctx.users.values()].map((u) => [u.slackId, u.name])
+  );
+  const parts = reactions.map(
+    (r) =>
+      `:${r.name}: ${r.users.map((id) => names.get(id) ?? 'someone').join(', ')}`
+  );
+  return `${REACTION_LINE_PREFIX}${parts.join(' · ')}_`;
+}
+
 function buildReactions(
   message: StoredMessage,
   ctx: MessageBuildContext
@@ -479,6 +500,9 @@ function buildOne(
   const reactions = buildReactions(message, ctx);
   if (reactions) {
     result.reactions = reactions;
+    // Slack's importer drops reactions (pilot, 2026-09-28), so they are also
+    // written into the message where everyone can still see them.
+    result.text = `${result.text}\n${reactionLine(reactions, ctx)}`;
   }
   return result;
 }

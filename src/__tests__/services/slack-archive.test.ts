@@ -505,7 +505,7 @@ describe('archive from a fixture store', () => {
     expect(reply.thread_ts).toBe(parent.ts);
     expect(reply.parent_user_id).toBe(parent.user);
     expect(reply.text).toBe(
-      `Welcome <@${model.manifest.users[USER_PASTOR].slackId}>!`
+      `Welcome <@${model.manifest.users[USER_PASTOR].slackId}>!\n_Reactions: :wave: Pat Pastor, Former user 000003_`
     );
     expect(reply.reactions).toEqual([
       {
