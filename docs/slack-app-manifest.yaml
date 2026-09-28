@@ -9,6 +9,10 @@
 # the bot token; store it as SLACK_USER_TOKEN or in the keyring as slack-user.
 # Nothing in this app can delete a message, remove a member, or change
 # anyone's profile.
+#
+# After the announcement, other people approve the app too (slack-connect),
+# each through their own consent screen, so restore-reactions can add back
+# the reactions they made in Google Chat. Their token can only act as them.
 display_information:
   name: Chat Migration
   description: Reads the workspace for migration checks and attaches imported files.
@@ -20,6 +24,9 @@ features:
     always_online: false
 
 oauth_config:
+  redirect_urls:
+    # slack-connect behind Tailscale Funnel; only up while people connect.
+    - https://server.tail3620c0.ts.net:8443/slack/callback
   scopes:
     bot:
       # --- Pre-import mapping report: who already exists here, so the import
@@ -48,6 +55,13 @@ oauth_config:
       # that person's own DMs and group DMs, which no bot token can. Used by
       # verify-slack to check them and by upload-files to attach files there.
       # It reaches nobody else's DMs.
+      #
+      # reactions:write and the channels:* pair are for restore-reactions:
+      # each person re-adds their own reactions, in public channels too, and
+      # chat:write lets an author tidy the text reaction line on their message.
+      - reactions:write
+      - channels:read
+      - channels:history
       - im:read
       - im:history
       - mpim:read

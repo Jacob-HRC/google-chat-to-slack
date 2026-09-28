@@ -159,6 +159,43 @@ Then turn Funnel off and stop the server:
 tailscale funnel --https=8443 off
 ```
 
+## 6. After the announcement: restore reactions
+
+Slack's importer drops reactions, so the archive writes them into each
+message as a line (`_Reactions: :+1: Ken Kicker_`). Real reactions can come
+back only one way: each person approves the app once, and their own token
+re-adds the reactions they made. Nobody else's token can add them.
+
+Setup, once:
+
+- The app has the user scopes and redirect URL in
+  `docs/slack-app-manifest.yaml` (reinstall after adding them).
+- The app's Client ID and Client Secret are in the keyring as
+  `slack-client-id` and `slack-client-secret`, or set as `SLACK_CLIENT_ID`
+  and `SLACK_CLIENT_SECRET`.
+
+Then:
+
+```bash
+pnpm start slack-connect            # add --allow <SlackId>… for a test
+tailscale funnel --bg --https=8443 --set-path=/slack http://127.0.0.1:8788/slack
+# send people https://server.tail3620c0.ts.net:8443/slack/connect
+pnpm start slack-connect --list     # who has connected
+pnpm start restore-reactions --archive data/slack-archive/hrc-full.zip --dry-run
+pnpm start restore-reactions --archive data/slack-archive/hrc-full.zip
+```
+
+Rerun `restore-reactions` as more people connect. It only adds reactions
+(one already there counts as done). Where a message's author has connected,
+it also edits the text line so it names only the people still missing, and
+removes the line once none are missing. Slack shows those messages as
+"(edited)". Only an author can edit their own message, so lines on messages
+from people who never connect stay as they are. What each run did is kept in
+`hrc-full.reactions-restored.json`, so `--only` batches build on each other.
+
+Tokens live in the keyring as `slack-user:<SlackId>`. Turn Funnel off when
+people are done connecting.
+
 ## If files did not arrive
 
 If `serve-files` logged no fetches, or `verify-slack` reports file problems,

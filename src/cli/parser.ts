@@ -11,7 +11,9 @@ import { loginCommand } from './commands/login';
 import { logoutCommand } from './commands/logout';
 import { migrateCommand } from './commands/migrate';
 import { recoverNamesCommand } from './commands/recover-names';
+import { restoreReactionsCommand } from './commands/restore-reactions';
 import { serveFilesCommand } from './commands/serve-files';
+import { slackConnectCommand } from './commands/slack-connect';
 import { slackMembersCommand } from './commands/slack-members';
 import { stageLargeFilesCommand } from './commands/stage-large-files';
 import { transformCommand } from './commands/transform';
@@ -44,6 +46,8 @@ export function getParser() {
   parser.command(stageLargeFilesCommand);
   parser.command(verifySlackCommand);
   parser.command(uploadFilesCommand);
+  parser.command(slackConnectCommand);
+  parser.command(restoreReactionsCommand);
 
   return parser;
 }

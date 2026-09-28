@@ -103,3 +103,8 @@ export function getDefaultChannelVisibilityFile(): string {
 export function getDefaultLargeFilesLedger(): string {
   return join(getDataDirectory(), 'slack', 'large-files.json');
 }
+
+/** Who has connected for the reaction restore; tokens live in the keyring. */
+export function getDefaultConnectedUsersFile(): string {
+  return join(getDataDirectory(), 'slack', 'connected-users.json');
+}
