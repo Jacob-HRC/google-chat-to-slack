@@ -134,6 +134,8 @@ export interface ConversationPlan {
   purpose?: string;
   topic?: string;
   skippedReason?: string;
+  /** Imported already archived (named Spaces only); see visibility.ts. */
+  archived?: boolean;
 }
 
 export interface FileUploadTask {

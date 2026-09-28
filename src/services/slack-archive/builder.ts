@@ -90,6 +90,8 @@ export interface BuildArchiveOptions {
   usersOverlay?: UserOverlay;
   /** Reviewed public/private list; see visibility.ts. Overrides spaceVisibility. */
   visibilityBySpace?: Map<string, 'public' | 'private'>;
+  /** Named Spaces to import already archived (Slack's is_archived). */
+  archivedSpaces?: Set<string>;
   /** Attachments moved to Google Drive, by attachment key; see stage-large-files. */
   driveCopies?: Record<string, DriveCopy>;
   /** What to do with Google Meet chats; see meeting-chats.ts. Default fold. */
@@ -137,7 +139,7 @@ function toChannel(plan: ConversationPlan): SlackExportChannel {
     name: plan.name,
     created: plan.created,
     creator: plan.creator,
-    is_archived: false,
+    is_archived: plan.archived ?? false,
     is_general: false,
     members: plan.members,
     topic: topic(plan.topic, plan.creator, plan.created),
@@ -654,6 +656,7 @@ export async function buildArchiveModel(
       usedNames: new Set(options.slackMembers?.channels?.map((c) => c.name)),
       vaultPrefix: options.vaultPrefix,
       visibilityBySpace: options.visibilityBySpace,
+      archivedSpaces: options.archivedSpaces,
       unlisted: [],
     },
   };

@@ -3,14 +3,15 @@ import path from 'node:path';
 import type { CommandModule } from 'yargs';
 import {
   listStoredSpaceIds,
+  loadMessages,
   loadSpace,
-  loadState,
   openStore,
 } from '../../services/export-store';
 import { isMeetingChat } from '../../services/slack-archive/meeting-chats';
 import {
   parseCsv,
   rowFor,
+  spaceActivity,
   toCsv,
   type VisibilityRow,
 } from '../../services/slack-archive/visibility';
@@ -22,7 +23,10 @@ import {
 type ChannelVisibilityArgs = {
   input: string;
   output?: string;
+  archiveBefore?: string;
 };
+
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
 async function readPrevious(
   filePath: string
@@ -57,9 +61,17 @@ export const channelVisibilityCommand: CommandModule<
           'The review list. Defaults to data/slack/channel-visibility.csv.',
         type: 'string',
       })
+      .option('archive-before', {
+        describe:
+          'Suggest archiving Spaces whose last message is before this date (YYYY-MM-DD). Only fills rows with no archive decision yet.',
+        type: 'string',
+      })
       .strict(),
   handler: async (argv) => {
     try {
+      if (argv.archiveBefore && !DATE_REGEX.test(argv.archiveBefore)) {
+        throw new Error('--archive-before must be a date like 2025-01-01');
+      }
       const store = await openStore(path.resolve(argv.input));
       const filePath = path.resolve(
         argv.output ?? getDefaultChannelVisibilityFile()
@@ -72,9 +84,9 @@ export const channelVisibilityCommand: CommandModule<
         if (!space || space.spaceType !== 'SPACE' || isMeetingChat(space)) {
           continue;
         }
-        const state = await loadState(store, spaceId);
+        const activity = spaceActivity(await loadMessages(store, spaceId));
         rows.push(
-          rowFor(space, state?.messageCount ?? 0, previous.get(spaceId))
+          rowFor(space, activity, previous.get(spaceId), argv.archiveBefore)
         );
       }
       await writeFile(filePath, toCsv(rows), 'utf-8');
@@ -82,6 +94,11 @@ export const channelVisibilityCommand: CommandModule<
       const priv = rows.filter((r) => r.visibility === 'private').length;
       console.log(
         `${rows.length} named Spaces · ${rows.length - priv} public · ${priv} private · ${added} new since the last review`
+      );
+      const archived = rows.filter((r) => r.archive).length;
+      const undecided = rows.filter((r) => r.archive === undefined).length;
+      console.log(
+        `Archive on import: ${archived} yes · ${rows.length - archived - undecided} no · ${undecided} undecided`
       );
       console.log(`Review and edit: ${filePath}`);
     } catch (error) {

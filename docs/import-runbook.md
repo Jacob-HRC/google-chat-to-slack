@@ -37,6 +37,9 @@ so steps 3 and 4 are done by hand. Everything around them is scripted.
       Spaces to `data/slack/channel-visibility.csv` (decisions already made are
       kept); check every `public` row. A public channel shows its whole
       history to the whole workspace. Unlisted Spaces are built private.
+      The same list carries `last_message` and `archive`: rows marked `yes`
+      import already archived. `--archive-before <date>` fills `archive` for
+      rows with no decision yet (last message before the date, or none).
 - [ ] A fresh roster: `pnpm start slack-members`. Take it right before the
       build. Anyone who joins Slack after this point is treated as new.
 - [ ] Optional, for checking your own DMs: a user token. Reinstall the Chat

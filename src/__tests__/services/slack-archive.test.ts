@@ -479,6 +479,25 @@ describe('archive from a fixture store', () => {
       .flatMap((day) => conversation.days[day]);
   }
 
+  it('imports a Space archived only when the reviewed list says so', async () => {
+    expect(model.groups[0].is_archived).toBe(false);
+    const archived = await buildArchiveModel({
+      storeDir: fixture.dir,
+      teamId: 'T1',
+      spaceFilter: ['general'],
+      skipBotDms: true,
+      spaceVisibility: 'private',
+      deletedPolicy: 'tombstone',
+      fileStrategy: 'manifest',
+      overrides: {},
+      visibilityBySpace: new Map([['AAAAgeneral', 'public']]),
+      archivedSpaces: new Set(['AAAAgeneral']),
+    });
+    expect(archived.channels.map((c) => [c.name, c.is_archived])).toEqual([
+      ['general', true],
+    ]);
+  });
+
   it('places conversations by type and skips bot DMs', () => {
     expect(model.groups.map((g) => g.name)).toEqual(['general']);
     expect(model.channels).toEqual([]);

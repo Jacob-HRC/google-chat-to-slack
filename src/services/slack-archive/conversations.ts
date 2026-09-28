@@ -32,6 +32,8 @@ export interface ConversationOptions {
    * missing from it is private and its name is added to `unlisted`.
    */
   visibilityBySpace?: Map<string, 'public' | 'private'>;
+  /** Named Spaces to import already archived. */
+  archivedSpaces?: Set<string>;
   unlisted?: string[];
 }
 
@@ -188,6 +190,7 @@ function planNamedSpace(
     kind,
     id: slackIdFor(kind === 'channel' ? 'C' : 'G', input.space.name),
     name,
+    archived: options.archivedSpaces?.has(input.space.spaceId) || undefined,
   };
 }
 

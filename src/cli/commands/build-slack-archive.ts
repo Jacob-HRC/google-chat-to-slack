@@ -99,15 +99,20 @@ async function loadSlackMembers(
   return snapshot;
 }
 
-async function loadVisibility(
-  filePath: string
-): Promise<Map<string, Visibility>> {
+async function loadVisibility(filePath: string): Promise<{
+  visibility: Map<string, Visibility>;
+  archived: Set<string>;
+}> {
   const rows = parseCsv(await readFile(filePath, 'utf-8'));
   const publicCount = rows.filter((r) => r.visibility === 'public').length;
+  const archived = new Set(rows.filter((r) => r.archive).map((r) => r.spaceId));
   console.log(
-    `Channel visibility from ${filePath}: ${publicCount} public, ${rows.length - publicCount} private; anything unlisted is private.`
+    `Channel visibility from ${filePath}: ${publicCount} public, ${rows.length - publicCount} private; anything unlisted is private. ${archived.size} will import archived.`
   );
-  return new Map(rows.map((r) => [r.spaceId, r.visibility]));
+  return {
+    visibility: new Map(rows.map((r) => [r.spaceId, r.visibility])),
+    archived,
+  };
 }
 
 async function loadDriveCopies(
@@ -157,6 +162,9 @@ async function toBuildOptions(argv: BuildArgs): Promise<BuildArchiveOptions> {
       )) ?? {})
     : {};
   const slackMembers = await loadSlackMembers(argv);
+  const visibilityList = argv.channelVisibility
+    ? await loadVisibility(path.resolve(argv.channelVisibility))
+    : undefined;
   return {
     storeDir: path.resolve(argv.input),
     // The archive's own source team. Never the destination's id: the export
@@ -180,9 +188,8 @@ async function toBuildOptions(argv: BuildArgs): Promise<BuildArchiveOptions> {
     driveCopies: argv.largeFiles
       ? await loadDriveCopies(path.resolve(argv.largeFiles))
       : undefined,
-    visibilityBySpace: argv.channelVisibility
-      ? await loadVisibility(path.resolve(argv.channelVisibility))
-      : undefined,
+    visibilityBySpace: visibilityList?.visibility,
+    archivedSpaces: visibilityList?.archived,
     usersOverlay: argv.usersOverlay
       ? await requireOverlay(path.resolve(argv.usersOverlay))
       : undefined,
