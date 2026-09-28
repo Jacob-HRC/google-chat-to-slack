@@ -66,18 +66,25 @@ async function archivePublic(
   return counts;
 }
 
-/** People who approved the app with the scope that archives private channels. */
+/**
+ * People who approved the app and whose token can archive private channels.
+ * Asks Slack for each token's current scopes: an approval recorded before
+ * groups:write was added can have gained it since (tokens are per person
+ * and app, and grow with each reinstall or approval).
+ */
 async function connectedArchivers(): Promise<ConnectedMember[]> {
   const registry = await loadRegistry(getDefaultConnectedUsersFile());
   const people: ConnectedMember[] = [];
   for (const person of Object.values(registry)) {
-    if (!person.scopes.split(',').includes(ARCHIVE_SCOPE)) {
-      continue;
-    }
     // biome-ignore lint/nursery/noAwaitInLoop: a keyring read per person.
     const token = await tokenFor(person.slackId);
-    if (token) {
-      people.push({ slackId: person.slackId, client: new WebClient(token) });
+    if (!token) {
+      continue;
+    }
+    const client = new WebClient(token);
+    const check = await client.auth.test();
+    if (check.response_metadata?.scopes?.includes(ARCHIVE_SCOPE)) {
+      people.push({ slackId: person.slackId, client });
     }
   }
   return people;
