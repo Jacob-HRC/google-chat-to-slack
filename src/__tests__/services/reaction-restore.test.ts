@@ -9,6 +9,7 @@ import {
   addReaction,
   ledgerKey,
   markRestored,
+  messageFileIds,
   type RestoredLedger,
   rewriteReactionLine,
   tasksFor,
@@ -175,6 +176,40 @@ describe('addReaction', () => {
     expect(
       await addReaction(client, { unreachable: 'not a member' }, task)
     ).toBe('unreachable');
+  });
+});
+
+describe('messageFileIds', () => {
+  const page = {
+    messages: [
+      { ts: '5.5', files: [{ id: 'F1' }, { id: 'F2' }] },
+      { ts: '6.6', files: [{ id: 'F3' }] },
+    ],
+  };
+  const calls: string[] = [];
+  const client = {
+    conversations: {
+      history: () => {
+        calls.push('history');
+        return Promise.resolve(page);
+      },
+      replies: (args: { ts: string }) => {
+        calls.push(`replies:${args.ts}`);
+        return Promise.resolve(page);
+      },
+    },
+  } as unknown as import('@slack/web-api').WebClient;
+
+  it('reads top-level messages from history and replies from their thread', async () => {
+    expect(await messageFileIds(client, 'D1', { ts: '5.5' })).toEqual([
+      'F1',
+      'F2',
+    ]);
+    expect(
+      await messageFileIds(client, 'D1', { ts: '6.6', threadTs: '5.5' })
+    ).toEqual(['F3']);
+    expect(await messageFileIds(client, 'D1', { ts: '9.9' })).toEqual([]);
+    expect(calls).toEqual(['history', 'replies:5.5', 'history']);
   });
 });
 

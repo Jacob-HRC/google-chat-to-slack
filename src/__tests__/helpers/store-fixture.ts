@@ -229,6 +229,8 @@ export async function createFixtureStore(dir: string): Promise<FixtureStore> {
     ...index['AAAAgeneral/msg003.msg003/upload-0'],
     status: 'downloaded',
     fileName: 'flyer.png',
+    // Google sometimes stores photos with the generic type.
+    contentType: 'application/octet-stream',
     localPath: pngPath,
     size: pngDigest.size,
     sha256: pngDigest.sha256,

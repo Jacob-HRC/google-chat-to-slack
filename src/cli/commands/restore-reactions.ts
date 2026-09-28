@@ -7,6 +7,7 @@ import {
   conversationsByFolder,
   ledgerKey,
   markRestored,
+  messageFileIds,
   type RestoredLedger,
   type RestoreOutcome,
   readArchiveReactions,
@@ -103,6 +104,25 @@ async function restoreFor(
   return counts;
 }
 
+/** Edits a message's text; a message left empty keeps its files by naming them. */
+async function editMessage(
+  client: WebClient,
+  channel: string,
+  message: ArchivedReaction,
+  text: string
+): Promise<void> {
+  const fileIds =
+    text.trim() === ''
+      ? await messageFileIds(client, channel, message)
+      : undefined;
+  await client.chat.update({
+    channel,
+    ts: message.ts,
+    text,
+    ...(fileIds ? { file_ids: fileIds } : {}),
+  });
+}
+
 /** Rewrites reaction lines on messages whose authors are connected. */
 async function rewriteLines(
   people: Person[],
@@ -138,14 +158,14 @@ async function rewriteLines(
     }
     try {
       // biome-ignore lint/nursery/noAwaitInLoop: edits go one at a time.
-      await author.client.chat.update({
-        channel: destination.channelId,
-        ts: message.ts,
-        text,
-      });
+      await editMessage(author.client, destination.channelId, message, text);
       ledger.lines[key] = text;
       edited += 1;
-    } catch {
+    } catch (error) {
+      const code = (error as { data?: { error?: string } }).data?.error;
+      console.warn(
+        `Could not edit ${message.folder} ${message.ts}: ${code ?? String(error)}`
+      );
       failed += 1;
     }
   }

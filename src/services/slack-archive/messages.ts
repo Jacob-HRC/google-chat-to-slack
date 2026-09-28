@@ -201,6 +201,29 @@ function filetypeOf(record: AttachmentRecord): string {
   return ext || 'binary';
 }
 
+const GENERIC_MIME = 'application/octet-stream';
+/** Photos Google stored with the generic type; named by extension instead. */
+const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  gif: 'image/gif',
+  heic: 'image/heic',
+  heif: 'image/heif',
+  webp: 'image/webp',
+  bmp: 'image/bmp',
+  tif: 'image/tiff',
+  tiff: 'image/tiff',
+};
+
+function mimeTypeOf(record: AttachmentRecord): string {
+  const stored = record.exportedAs?.mimeType ?? record.contentType;
+  if (stored && stored !== GENERIC_MIME) {
+    return stored;
+  }
+  return IMAGE_MIME_BY_EXTENSION[filetypeOf(record)] ?? GENERIC_MIME;
+}
+
 function hostedUrl(
   record: AttachmentRecord,
   options: MessageBuildOptions
@@ -229,10 +252,7 @@ function toExportFile(
     timestamp: seconds,
     name,
     title: record.drive?.name ?? record.contentName ?? name,
-    mimetype:
-      record.exportedAs?.mimeType ??
-      record.contentType ??
-      'application/octet-stream',
+    mimetype: mimeTypeOf(record),
     filetype: filetypeOf(record),
     size: record.size ?? 0,
     mode: 'hosted',
@@ -340,10 +360,7 @@ function queueUpload(
     fileName: record.fileName ?? 'file',
     title:
       record.drive?.name ?? record.contentName ?? record.fileName ?? 'file',
-    mimeType:
-      record.exportedAs?.mimeType ??
-      record.contentType ??
-      'application/octet-stream',
+    mimeType: mimeTypeOf(record),
     size: record.size ?? 0,
     sha256: record.sha256,
     driveLink: record.drive?.webViewLink,

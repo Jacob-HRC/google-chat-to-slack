@@ -23,6 +23,8 @@ export interface ArchivedReaction {
   /** Conversation folder in the archive (channel name, or DM id). */
   folder: string;
   ts: string;
+  /** Parent ts when the message is a thread reply. */
+  threadTs?: string;
   /** Archive user id of the message's author. */
   author?: string;
   text: string;
@@ -54,6 +56,10 @@ export async function readArchiveReactions(
           found.push({
             folder: parts[0],
             ts: message.ts,
+            threadTs:
+              message.thread_ts && message.thread_ts !== message.ts
+                ? message.thread_ts
+                : undefined,
             author: message.user,
             text: message.text,
             reactions: message.reactions.map((r) => ({
@@ -197,6 +203,28 @@ export function markRestored(
     users.push(archiveUserId);
   }
   ledger.restored[key] = users;
+}
+
+/**
+ * The Slack file ids on a message. Slack refuses to edit a message down to
+ * empty text unless the edit names its files, which a file-only message
+ * needs once its reaction line goes.
+ */
+export async function messageFileIds(
+  client: WebClient,
+  channel: string,
+  message: Pick<ArchivedReaction, 'ts' | 'threadTs'>
+): Promise<string[]> {
+  const range = { latest: message.ts, oldest: message.ts, inclusive: true };
+  const page = message.threadTs
+    ? await client.conversations.replies({
+        channel,
+        ts: message.threadTs,
+        ...range,
+      })
+    : await client.conversations.history({ channel, ...range, limit: 1 });
+  const found = page.messages?.find((m) => m.ts === message.ts);
+  return (found?.files ?? []).flatMap((f) => (f.id ? [f.id] : []));
 }
 
 /** Looks up archive conversations by folder name. Pure. */
