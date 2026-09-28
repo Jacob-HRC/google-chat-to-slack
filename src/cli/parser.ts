@@ -1,5 +1,6 @@
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
+import { archiveChannelsCommand } from './commands/archive-channels';
 import { buildSlackArchiveCommand } from './commands/build-slack-archive';
 import { channelVisibilityCommand } from './commands/channel-visibility';
 import { exportCommand } from './commands/export';
@@ -48,6 +49,7 @@ export function getParser() {
   parser.command(uploadFilesCommand);
   parser.command(slackConnectCommand);
   parser.command(restoreReactionsCommand);
+  parser.command(archiveChannelsCommand);
 
   return parser;
 }

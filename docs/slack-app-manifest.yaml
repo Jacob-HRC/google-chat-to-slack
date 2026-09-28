@@ -50,6 +50,11 @@ oauth_config:
       - files:write
       - chat:write
       - channels:join
+
+      # --- archive-channels: archive the public channels the visibility list
+      # marks archive=yes, right after the import (the importer skips a
+      # channel the export marks archived).
+      - channels:manage
     user:
       # --- A user token acts as the person who installs the app, and reaches
       # that person's own DMs and group DMs, which no bot token can. Used by

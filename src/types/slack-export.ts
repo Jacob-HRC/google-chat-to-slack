@@ -134,7 +134,10 @@ export interface ConversationPlan {
   purpose?: string;
   topic?: string;
   skippedReason?: string;
-  /** Imported already archived (named Spaces only); see visibility.ts. */
+  /**
+   * To be archived after the import (named Spaces only; see visibility.ts).
+   * Never written as is_archived: Slack's importer skips archived channels.
+   */
   archived?: boolean;
 }
 
@@ -220,6 +223,8 @@ export interface ArchiveConversationMapping {
   skippedReason?: string;
   /** Google Meet chats folded into another conversation: its name. */
   mergedInto?: string;
+  /** Archive right after the import; see archive-channels. */
+  archiveAfterImport?: boolean;
 }
 
 export interface ArchiveManifest {

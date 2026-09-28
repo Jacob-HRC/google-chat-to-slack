@@ -37,9 +37,11 @@ so steps 3 and 4 are done by hand. Everything around them is scripted.
       Spaces to `data/slack/channel-visibility.csv` (decisions already made are
       kept); check every `public` row. A public channel shows its whole
       history to the whole workspace. Unlisted Spaces are built private.
-      The same list carries `last_message` and `archive`: rows marked `yes`
-      import already archived. `--archive-before <date>` fills `archive` for
-      rows with no decision yet (last message before the date, or none).
+      The same list carries `last_message` and `archive`. `--archive-before
+      <date>` fills `archive` for rows with no decision yet (last message
+      before the date, or none). Rows marked `yes` still import active,
+      because Slack's importer skips a channel the export marks archived;
+      they are archived after the import (step 5b).
 - [ ] A fresh roster: `pnpm start slack-members`. Take it right before the
       build. Anyone who joins Slack after this point is treated as new.
 - [ ] Optional, for checking your own DMs: a user token. Reinstall the Chat
@@ -155,6 +157,17 @@ It checks:
 A bot can't read other people's DMs, so those are reported as not readable,
 never as passed. Spot-check a few in the UI. The full report is written
 beside the ZIP as `hrc-full.verify-<time>.json`.
+
+## 5b. Archive the quiet channels
+
+```bash
+pnpm start archive-channels --archive data/slack-archive/hrc-full.zip --dry-run
+pnpm start archive-channels --archive data/slack-archive/hrc-full.zip
+```
+
+The bot joins and archives each public channel marked `archive=yes` (the app
+needs `channels:manage`). It cannot join private channels, so those are
+written to `hrc-full.archive-private.txt` for an admin to archive by hand.
 
 Then turn Funnel off and stop the server:
 

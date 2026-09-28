@@ -479,7 +479,7 @@ describe('archive from a fixture store', () => {
       .flatMap((day) => conversation.days[day]);
   }
 
-  it('imports a Space archived only when the reviewed list says so', async () => {
+  it('marks a Space for archiving after the import, never in the ZIP', async () => {
     expect(model.groups[0].is_archived).toBe(false);
     const archived = await buildArchiveModel({
       storeDir: fixture.dir,
@@ -493,9 +493,17 @@ describe('archive from a fixture store', () => {
       visibilityBySpace: new Map([['AAAAgeneral', 'public']]),
       archivedSpaces: new Set(['AAAAgeneral']),
     });
+    // Slack's importer skips channels marked archived, so the ZIP never
+    // says so; the manifest carries the decision for archive-channels.
     expect(archived.channels.map((c) => [c.name, c.is_archived])).toEqual([
-      ['general', true],
+      ['general', false],
     ]);
+    expect(archived.manifest.conversations.AAAAgeneral.archiveAfterImport).toBe(
+      true
+    );
+    expect(model.manifest.conversations.AAAAgeneral.archiveAfterImport).toBe(
+      undefined
+    );
   });
 
   it('places conversations by type and skips bot DMs', () => {

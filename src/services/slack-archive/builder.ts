@@ -90,7 +90,7 @@ export interface BuildArchiveOptions {
   usersOverlay?: UserOverlay;
   /** Reviewed public/private list; see visibility.ts. Overrides spaceVisibility. */
   visibilityBySpace?: Map<string, 'public' | 'private'>;
-  /** Named Spaces to import already archived (Slack's is_archived). */
+  /** Named Spaces to archive after the import (recorded in the manifest). */
   archivedSpaces?: Set<string>;
   /** Attachments moved to Google Drive, by attachment key; see stage-large-files. */
   driveCopies?: Record<string, DriveCopy>;
@@ -139,7 +139,9 @@ function toChannel(plan: ConversationPlan): SlackExportChannel {
     name: plan.name,
     created: plan.created,
     creator: plan.creator,
-    is_archived: plan.archived ?? false,
+    // Always false: the importer skips a channel marked archived (tested
+    // 2026-09-28), so archiving happens after the import instead.
+    is_archived: false,
     is_general: false,
     members: plan.members,
     topic: topic(plan.topic, plan.creator, plan.created),
@@ -377,6 +379,7 @@ function addConversation(
     messages: built.count,
     omitted: built.omitted,
     days: Object.keys(built.days).length,
+    ...(plan.archived ? { archiveAfterImport: true } : {}),
   };
   return conversation;
 }

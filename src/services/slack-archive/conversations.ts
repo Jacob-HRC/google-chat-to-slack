@@ -32,7 +32,7 @@ export interface ConversationOptions {
    * missing from it is private and its name is added to `unlisted`.
    */
   visibilityBySpace?: Map<string, 'public' | 'private'>;
-  /** Named Spaces to import already archived. */
+  /** Named Spaces to archive after the import. */
   archivedSpaces?: Set<string>;
   unlisted?: string[];
 }
