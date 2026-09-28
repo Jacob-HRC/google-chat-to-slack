@@ -5,41 +5,15 @@
  * syntax. What remains: mentions become `<@U…>`, bare `&`, `<`, `>` outside
  * tokens are escaped, and list bullets become `•`.
  */
-import { which as emojiWhich } from 'node-emoji';
 import type { StoredMessage, StoredReaction } from '../../types/export-store';
+import { slackEmojiName } from './emoji';
 
 const SCHEME_REGEX = /^https?:\/\//;
 const TOKEN_REGEX = /<[^<>]*>/g;
 const USER_TOKEN_REGEX = /^<users\/([^>|]+)(?:\|[^>]*)?>$/;
 const LINK_TOKEN_REGEX = /^<(https?:\/\/[^|>\s]+)(?:\|([^>]*))?>$/;
 const BULLET_LINE_REGEX = /^(\s*)[*-] (?=\S)/gm;
-const VARIATION_SELECTOR_REGEX = /[︎️]/g;
-const SKIN_TONE_REGEX = /[\u{1F3FB}-\u{1F3FF}]/gu;
 const COLON_REGEX = /^:|:$/g;
-
-// Emoji Slack supports that the lookup library does not know (newer Unicode).
-const EXTRA_SHORT_NAMES: Record<string, string> = {
-  '🤍': 'white_heart',
-  '🤎': 'brown_heart',
-  '🧡': 'orange_heart',
-  '🩷': 'pink_heart',
-  '🩵': 'light_blue_heart',
-  '🩶': 'grey_heart',
-  '🥲': 'smiling_face_with_tear',
-  '🥹': 'face_holding_back_tears',
-  '🫶': 'heart_hands',
-  '🫡': 'saluting_face',
-  '🫠': 'melting_face',
-  '🫤': 'face_with_diagonal_mouth',
-  '🫣': 'face_with_peeking_eye',
-  '🫢': 'face_with_open_eyes_and_hand_over_mouth',
-  '🫥': 'dotted_line_face',
-  '🫰': 'hand_with_index_finger_and_thumb_crossed',
-  '🫵': 'index_pointing_at_the_viewer',
-  '🫂': 'people_hugging',
-  '🙂‍↕️': 'head_shaking_vertically',
-  '🙂‍↔️': 'head_shaking_horizontally',
-};
 
 export interface TextContext {
   /** Slack user id for a Google `users/<id>`; undefined when unmapped. */
@@ -154,12 +128,6 @@ export function reactionShortName(
   if (!unicode) {
     return;
   }
-  const direct = emojiWhich(unicode) ?? EXTRA_SHORT_NAMES[unicode];
-  if (direct) {
-    return direct;
-  }
-  const stripped = unicode
-    .replace(VARIATION_SELECTOR_REGEX, '')
-    .replace(SKIN_TONE_REGEX, '');
-  return emojiWhich(stripped) ?? EXTRA_SHORT_NAMES[stripped];
+  // Unknown to Slack (newer Unicode): keep the character, never drop it.
+  return slackEmojiName(unicode) ?? unicode;
 }

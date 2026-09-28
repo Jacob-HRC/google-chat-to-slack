@@ -21,6 +21,7 @@ import {
   slackTsToMicros,
   toSlackTs,
 } from '../../utils/timestamps';
+import { reactionEmoji } from './emoji';
 import { slackIdFor } from './ids';
 import { migratedTime } from './migrated';
 import {
@@ -155,7 +156,7 @@ export function reactionLine(
   );
   const parts = reactions.map(
     (r) =>
-      `:${r.name}: ${r.users.map((id) => names.get(id) ?? 'someone').join(', ')}`
+      `${reactionEmoji(r.name)} ${r.users.map((id) => names.get(id) ?? 'someone').join(', ')}`
   );
   return `${REACTION_LINE_PREFIX}${parts.join(' · ')}_`;
 }

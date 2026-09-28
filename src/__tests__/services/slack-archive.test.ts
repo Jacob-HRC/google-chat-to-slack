@@ -123,7 +123,25 @@ describe('text', () => {
     ).toBe('wave');
     expect(
       reactionShortName({ user: 'u', emoji: { unicode: '🙏🏽' }, raw })
-    ).toBe('pray');
+    ).toBe('pray::skin-tone-4');
+    // Slack's names, not GitHub's: these differ between the two.
+    const cases: [string, string][] = [
+      ['🧐', 'face_with_monocle'],
+      ['🤣', 'rolling_on_the_floor_laughing'],
+      ['❤️', 'heart'],
+      ['❤', 'heart'],
+      ['👍', '+1'],
+      ['👍🏿', '+1::skin-tone-6'],
+      ['🤍', 'white_heart'],
+      ['🙂‍↕️', 'head_shaking_vertically'],
+      // Too new for Slack's list: kept as the character, not dropped.
+      ['\u{1FAEA}', '\u{1FAEA}'],
+    ];
+    for (const [unicode, name] of cases) {
+      expect(reactionShortName({ user: 'u', emoji: { unicode }, raw })).toBe(
+        name
+      );
+    }
     expect(
       reactionShortName({
         user: 'u',

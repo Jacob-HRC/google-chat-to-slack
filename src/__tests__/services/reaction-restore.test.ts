@@ -108,6 +108,20 @@ describe('rewriteReactionLine', () => {
     ).toBe('Lunch?\n_Reactions: :+1: Amy_');
   });
 
+  it('shows an emoji Slack has no name for as the character', () => {
+    expect(
+      rewriteReactionLine(
+        'Hi\n_Reactions: :+1: Amy · \u{1FAEA} Amy_',
+        [
+          { name: '+1', users: ['U_AMY', 'U_KEN'] },
+          { name: '\u{1FAEA}', users: ['U_AMY'] },
+        ],
+        new Set(['U_KEN']),
+        nameOf
+      )
+    ).toBeUndefined();
+  });
+
   it('drops the line once everyone is restored', () => {
     expect(
       rewriteReactionLine(

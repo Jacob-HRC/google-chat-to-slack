@@ -15,6 +15,7 @@ import type {
   MessageIndexConversation,
   SlackExportMessage,
 } from '../types/slack-export';
+import { reactionEmoji } from './slack-archive/emoji';
 import { REACTION_LINE_PREFIX } from './slack-archive/messages';
 import type { Destination } from './slack-destination';
 
@@ -122,7 +123,7 @@ export function rewriteReactionLine(
   const kept = lines.filter((_, i) => i !== index);
   if (remaining.length > 0) {
     const parts = remaining.map(
-      (r) => `:${r.name}: ${r.users.map(nameOf).join(', ')}`
+      (r) => `${reactionEmoji(r.name)} ${r.users.map(nameOf).join(', ')}`
     );
     kept.splice(index, 0, `${REACTION_LINE_PREFIX}${parts.join(' · ')}_`);
   }
