@@ -243,16 +243,36 @@ function planLargeGroup(
 }
 
 /** Plans one conversation. `skippedReason` is set when it will not be written. */
+/**
+ * Who joins a named Space's channel: the people in the Space now. Someone
+ * who posted and later left keeps their messages (under their name) but does
+ * not get the channel back, which matches what Google Chat shows them today.
+ * A Space nobody is in any more keeps its posters, or its history would be
+ * visible to no one. Pure.
+ */
+export function namedSpaceMembers(
+  input: ConversationInput
+): Array<{ chatUserId: string; mapping: ArchiveUserMapping }> {
+  const participants = participantsOf(input);
+  const current = new Set(
+    input.space.memberships
+      .filter((m) => m.memberType === 'HUMAN')
+      .map((m) => m.chatUserId)
+  );
+  const members = participants.filter((p) => current.has(p.chatUserId));
+  return members.length > 0 ? members : participants;
+}
+
 export function planConversation(
   input: ConversationInput,
   options: ConversationOptions
 ): ConversationPlan {
-  const members = participantsOf(input);
   const { space } = input;
 
   if (space.spaceType === 'SPACE') {
-    return planNamedSpace(input, options, members);
+    return planNamedSpace(input, options, namedSpaceMembers(input));
   }
+  const members = participantsOf(input);
 
   if (space.isBotDm && options.skipBotDms) {
     return {

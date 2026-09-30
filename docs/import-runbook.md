@@ -41,7 +41,7 @@ so steps 3 and 4 are done by hand. Everything around them is scripted.
       <date>` fills `archive` for rows with no decision yet (last message
       before the date, or none). Rows marked `yes` still import active,
       because Slack's importer skips a channel the export marks archived;
-      they are archived after the import (step 5b).
+      they are archived after the reaction restore (step 7).
 - [ ] A fresh roster: `pnpm start slack-members`. Take it right before the
       build. Anyone who joins Slack after this point is treated as new.
 - [ ] Optional, for checking your own DMs: a user token. Reinstall the Chat
@@ -158,21 +158,6 @@ A bot can't read other people's DMs, so those are reported as not readable,
 never as passed. Spot-check a few in the UI. The full report is written
 beside the ZIP as `hrc-full.verify-<time>.json`.
 
-## 5b. Archive the quiet channels
-
-```bash
-pnpm start archive-channels --archive data/slack-archive/hrc-full.zip --dry-run
-pnpm start archive-channels --archive data/slack-archive/hrc-full.zip
-```
-
-The bot joins and archives each public channel marked `archive=yes` (the app
-needs `channels:manage`). It cannot join private channels, so each of those is
-archived with the token of a member who approved the app for the reaction
-restore (step 6; the approval includes `groups:write`). Slack shows that
-member as having archived the channel. Run it again after the announcement as
-people approve; whatever no connected member can reach is listed in
-`hrc-full.archive-private.txt`.
-
 Then turn Funnel off and stop the server:
 
 ```bash
@@ -221,6 +206,26 @@ build: after a Reverse Import and re-import, move
 
 Tokens live in the keyring as `slack-user:<SlackId>`. Turn Funnel off when
 people are done connecting.
+
+## 7. When the approval window closes: archive the quiet channels
+
+Archive only after the reaction restore has run for everyone who approved:
+Slack refuses reactions and edits in an archived channel, so archiving
+earlier would leave those channels with the text line instead of real
+reactions.
+
+```bash
+pnpm start restore-reactions --archive data/slack-archive/hrc-full.zip
+pnpm start archive-channels --archive data/slack-archive/hrc-full.zip --dry-run
+pnpm start archive-channels --archive data/slack-archive/hrc-full.zip
+```
+
+The bot joins and archives each public channel marked `archive=yes` (the app
+needs `channels:manage`). It cannot join private channels, so each of those is
+archived with the token of a member who approved the app (the approval
+includes `groups:write`). Slack shows that member as having archived the
+channel. Only channels the import created are touched. Whatever no connected
+member can reach is listed in `hrc-full.archive-private.txt` for an admin.
 
 ## If files did not arrive
 
