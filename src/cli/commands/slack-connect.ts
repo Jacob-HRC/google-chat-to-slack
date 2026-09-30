@@ -1,4 +1,5 @@
 import type { CommandModule } from 'yargs';
+import { getSlackWebClient } from '../../services/slack';
 import { loadRegistry, startConnectServer } from '../../services/slack-connect';
 import { getDefaultConnectedUsersFile } from '../../utils/data-directory';
 import { getToken } from '../../utils/token-manager';
@@ -74,7 +75,13 @@ export const slackConnectCommand: CommandModule<object, SlackConnectArgs> = {
         ''
       );
       const allow = new Set(argv.allow ?? []);
+      // The workspace the bot is installed in is the only one accepted.
+      const teamId = (await (await getSlackWebClient()).auth.test()).team_id;
+      if (!teamId) {
+        throw new Error('could not read the workspace id from the bot token');
+      }
       await startConnectServer({
+        teamId,
         clientId: await secret('SLACK_CLIENT_ID', 'slack-client-id'),
         clientSecret: await secret(
           'SLACK_CLIENT_SECRET',

@@ -23,6 +23,7 @@ import {
 const stored = vi.hoisted(() => new Map<string, string>());
 const slack = vi.hoisted(() => ({
   userId: 'U_KEN',
+  teamId: 'T_HRC',
   reactionError: undefined as string | undefined,
 }));
 
@@ -38,14 +39,18 @@ vi.mock('@slack/web-api', () => ({
   WebClient: class {
     oauth = {
       v2: {
-        access: () =>
-          Promise.resolve({
+        // A code of the form U_… stands for that person's approval.
+        access: ({ code }: { code: string }) => {
+          const id = code.startsWith('U_') ? code : slack.userId;
+          return Promise.resolve({
+            team: { id: slack.teamId },
             authed_user: {
-              id: slack.userId,
-              access_token: `xoxp-${slack.userId}`,
+              id,
+              access_token: `xoxp-${id}`,
               scope: 'reactions:write',
             },
-          }),
+          });
+        },
       },
     };
     auth = { test: () => Promise.resolve({ user: 'someone' }) };
@@ -246,6 +251,7 @@ describe('connect server', () => {
       port: 0,
       registryPath,
       allow: new Set(['U_JACOB', 'U_KEN']),
+      teamId: 'T_HRC',
     });
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   });
@@ -293,6 +299,33 @@ describe('connect server', () => {
     const registry = JSON.parse(await readFile(registryPath, 'utf-8'));
     expect(Object.keys(registry)).toEqual(['U_KEN']);
     expect(JSON.stringify(registry)).not.toContain('xoxp');
+  });
+
+  it('refuses a token from another workspace', async () => {
+    slack.teamId = 'T_OTHER';
+    slack.userId = 'U_JACOB';
+    const state = await startState('/slack/connect');
+    const res = await fetch(`${base}/slack/callback?code=c&state=${state}`);
+    slack.teamId = 'T_HRC';
+    expect(res.status).toBe(403);
+    expect(stored.has(keyringAccount('U_JACOB'))).toBe(false);
+  });
+
+  it('pins the approval page to the workspace', async () => {
+    const res = await fetch(`${base}/slack/connect`, { redirect: 'manual' });
+    const location = new URL(res.headers.get('location') ?? '');
+    expect(location.searchParams.get('team')).toBe('T_HRC');
+  });
+
+  it('keeps every person when approvals land at the same moment', async () => {
+    const [a, b] = [await startState('/connect'), await startState('/connect')];
+    const results = await Promise.all([
+      fetch(`${base}/slack/callback?code=U_JACOB&state=${a}`),
+      fetch(`${base}/slack/callback?code=U_KEN&state=${b}`),
+    ]);
+    expect(results.map((r) => r.status)).toEqual([200, 200]);
+    const registry = JSON.parse(await readFile(registryPath, 'utf-8'));
+    expect(Object.keys(registry).sort()).toEqual(['U_JACOB', 'U_KEN']);
   });
 
   it('does not accept the same state twice', async () => {

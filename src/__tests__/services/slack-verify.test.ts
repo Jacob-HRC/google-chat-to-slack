@@ -239,6 +239,9 @@ describe('compareFiles', () => {
     const image = { ts: '1.1', fileSizes: [1000], fileTypes: ['image/png'] };
     expect(compareFiles(image, found([1000]))).toBeUndefined();
     expect(compareFiles(image, found([950]))).toBe('reencoded');
+    expect(compareFiles(image, found([0]))).toBe(
+      'expected sizes 1000, found 0'
+    );
     expect(compareFiles(image, found([]))).toContain('found 0');
     const pdf = {
       ts: '1.1',

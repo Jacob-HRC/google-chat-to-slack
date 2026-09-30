@@ -228,9 +228,11 @@ export function compareFiles(
   if (sortedWant === sortedGot) {
     return;
   }
+  // Re-encoding changes a size, never empties a file.
   const allImages =
     (expected.fileTypes ?? []).length === want.length &&
-    (expected.fileTypes ?? []).every((t) => t.startsWith('image/'));
+    (expected.fileTypes ?? []).every((t) => t.startsWith('image/')) &&
+    found.fileSizes.every((size) => size > 0);
   return allImages
     ? 'reencoded'
     : `expected sizes ${sortedWant}, found ${sortedGot}`;

@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import {
   copyFile,
@@ -21,7 +21,8 @@ export async function writeJsonAtomic(
   data: unknown
 ): Promise<void> {
   await mkdir(path.dirname(filePath), { recursive: true });
-  const tmpPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+  // Unique per call, so concurrent writers never share a temp file.
+  const tmpPath = `${filePath}.tmp-${process.pid}-${randomBytes(6).toString('hex')}`;
   await writeFile(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
   await rename(tmpPath, filePath);
 }

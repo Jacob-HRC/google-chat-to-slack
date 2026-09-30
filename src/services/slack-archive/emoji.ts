@@ -55,10 +55,15 @@ export function slackEmojiName(unicode: string): string | undefined {
     return;
   }
   const [tone] = tones;
-  const single = tones.length > 0 && tones.every((t) => t === tone);
+  if (tone === undefined) {
+    return base.short_name;
+  }
+  // Slack names one tone per emoji. Mixed tones (👨🏻‍❤️‍👨🏿) have no faithful
+  // name, so the caller keeps the original character instead.
+  const single = tones.every((t) => t === tone);
   return single && base.skin_variations
     ? `${base.short_name}::skin-tone-${SKIN_TONES.indexOf(tone) + FIRST_SKIN_TONE_NUMBER}`
-    : base.short_name;
+    : undefined;
 }
 
 /**

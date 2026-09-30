@@ -134,6 +134,8 @@ describe('text', () => {
       ['👍🏿', '+1::skin-tone-6'],
       ['🤍', 'white_heart'],
       ['🙂‍↕️', 'head_shaking_vertically'],
+      // Mixed tones have no Slack name: kept as the character.
+      ['👨🏻‍❤️‍👨🏿', '👨🏻‍❤️‍👨🏿'],
       // Too new for Slack's list: kept as the character, not dropped.
       ['\u{1FAEA}', '\u{1FAEA}'],
     ];
