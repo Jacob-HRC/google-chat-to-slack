@@ -5,6 +5,7 @@ import {
   archivePublicChannel,
   archiveTargets,
   type ConnectedMember,
+  createdByImport,
   pickArchivers,
 } from '../../services/channel-archiver';
 import type {
@@ -68,19 +69,35 @@ describe('archive-channels', () => {
       },
     } as unknown as WebClient;
     expect(
-      await archivePublicChannel(bot, { id: 'C1', isArchived: false })
+      await archivePublicChannel(bot, {
+        id: 'C1',
+        isArchived: false,
+        created: 0,
+      })
     ).toBe('archived');
     expect(calls).toEqual(['join:C1', 'archive:C1']);
     expect(
-      await archivePublicChannel(bot, { id: 'C2', isArchived: true })
+      await archivePublicChannel(bot, {
+        id: 'C2',
+        isArchived: true,
+        created: 0,
+      })
     ).toBe('already');
     archiveError = 'already_archived';
     expect(
-      await archivePublicChannel(bot, { id: 'C3', isArchived: false })
+      await archivePublicChannel(bot, {
+        id: 'C3',
+        isArchived: false,
+        created: 0,
+      })
     ).toBe('already');
     archiveError = 'missing_scope';
     expect(
-      await archivePublicChannel(bot, { id: 'C4', isArchived: false })
+      await archivePublicChannel(bot, {
+        id: 'C4',
+        isArchived: false,
+        created: 0,
+      })
     ).toBe('failed');
   });
 
@@ -92,13 +109,15 @@ describe('archive-channels', () => {
       [
         {
           person: ken,
-          channels: new Map([['old-finance', { id: 'G1', isArchived: false }]]),
+          channels: new Map([
+            ['old-finance', { id: 'G1', isArchived: false, created: 0 }],
+          ]),
         },
         {
           person: amy,
           channels: new Map([
-            ['old-finance', { id: 'G1', isArchived: false }],
-            ['old-hr', { id: 'G2', isArchived: true }],
+            ['old-finance', { id: 'G1', isArchived: false, created: 0 }],
+            ['old-hr', { id: 'G2', isArchived: true, created: 0 }],
           ]),
         },
       ]
@@ -121,12 +140,24 @@ describe('archive-channels', () => {
         },
       },
     } as unknown as WebClient;
-    expect(await archiveAsMember(member, { id: 'G1', isArchived: false })).toBe(
-      'archived'
-    );
-    expect(await archiveAsMember(member, { id: 'G2', isArchived: true })).toBe(
-      'already'
-    );
+    expect(
+      await archiveAsMember(member, { id: 'G1', isArchived: false, created: 0 })
+    ).toBe('archived');
+    expect(
+      await archiveAsMember(member, { id: 'G2', isArchived: true, created: 0 })
+    ).toBe('already');
     expect(calls).toEqual(['archive:G1']);
+  });
+
+  it('archives only channels the import created, never an older namesake', () => {
+    const builtAt = '2026-10-01T12:00:00.000Z';
+    const at = (iso: string) => ({
+      id: 'C1',
+      isArchived: false,
+      created: Date.parse(iso) / 1000,
+    });
+    expect(createdByImport(at('2026-10-01T13:00:00Z'), builtAt)).toBe(true);
+    expect(createdByImport(at('2026-10-01T12:00:00Z'), builtAt)).toBe(true);
+    expect(createdByImport(at('2024-05-01T00:00:00Z'), builtAt)).toBe(false);
   });
 });

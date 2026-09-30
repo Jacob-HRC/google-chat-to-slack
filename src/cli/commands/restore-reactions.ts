@@ -5,13 +5,15 @@ import {
   type ArchivedReaction,
   addReaction,
   conversationsByFolder,
+  fetchMessage,
+  footerFor,
+  footerOf,
   ledgerKey,
   markRestored,
-  messageFileIds,
   type RestoredLedger,
   type RestoreOutcome,
   readArchiveReactions,
-  rewriteReactionLine,
+  replaceFooter,
   tasksFor,
 } from '../../services/reaction-restore';
 import { getSlackWebClient } from '../../services/slack';
@@ -46,9 +48,23 @@ interface Person {
   directory: DestinationDirectory;
 }
 
+type Counts = Map<RestoreOutcome | 'would-add', number>;
+
+interface LineResult {
+  edited: number;
+  /** Someone changed the message since the import; left alone. */
+  changed: number;
+  failed: number;
+}
+
+/**
+ * Connected people in this workspace whose token still works. A token that
+ * fails, or belongs to another workspace, is reported and skipped.
+ */
 async function connectedPeople(
   argv: RestoreArgs,
   bot: WebClient,
+  teamId: string,
   slackUserIds: Map<string, string>
 ): Promise<Person[]> {
   const registry = await loadRegistry(getDefaultConnectedUsersFile());
@@ -61,19 +77,43 @@ async function connectedPeople(
       continue;
     }
     // biome-ignore lint/nursery/noAwaitInLoop: a few people, each with their own token.
-    const token = await tokenFor(slackId);
-    if (!token) {
-      continue;
+    const person = await connect(slackId, archiveId, bot, teamId, slackUserIds);
+    if (person) {
+      people.push(person);
     }
-    const client = new WebClient(token);
-    people.push({
+  }
+  return people;
+}
+
+async function connect(
+  slackId: string,
+  archiveId: string,
+  bot: WebClient,
+  teamId: string,
+  slackUserIds: Map<string, string>
+): Promise<Person | undefined> {
+  const token = await tokenFor(slackId);
+  if (!token) {
+    return;
+  }
+  const client = new WebClient(token);
+  try {
+    const check = await client.auth.test();
+    if (check.team_id !== teamId || check.user_id !== slackId) {
+      console.warn(`   skipped ${slackId}: token is for another account`);
+      return;
+    }
+    return {
       slackId,
       archiveId,
       client,
       directory: await loadDestinationDirectory(bot, client, slackUserIds),
-    });
+    };
+  } catch (error) {
+    const code = (error as { data?: { error?: string } }).data?.error;
+    console.warn(`   skipped ${slackId}: ${code ?? String(error)}`);
+    return;
   }
-  return people;
 }
 
 async function restoreFor(
@@ -82,8 +122,8 @@ async function restoreFor(
   byFolder: Map<string, MessageIndexConversation>,
   dryRun: boolean,
   ledger: RestoredLedger
-): Promise<Map<RestoreOutcome | 'would-add', number>> {
-  const counts = new Map<RestoreOutcome | 'would-add', number>();
+): Promise<Counts> {
+  const counts: Counts = new Map();
   for (const task of tasksFor(archived, person.archiveId)) {
     const conversation = byFolder.get(task.folder);
     const destination = conversation
@@ -98,29 +138,50 @@ async function restoreFor(
     }
     counts.set(outcome, (counts.get(outcome) ?? 0) + 1);
     if (outcome === 'added' || outcome === 'already') {
-      markRestored(ledger, ledgerKey(task.folder, task.ts), person.archiveId);
+      markRestored(
+        ledger,
+        ledgerKey(task.folder, task.ts),
+        person.archiveId,
+        task.name
+      );
     }
   }
   return counts;
 }
 
-/** Edits a message's text; a message left empty keeps its files by naming them. */
-async function editMessage(
-  client: WebClient,
+/**
+ * Updates the reaction line on one message, working from its current text:
+ * only the line the archive added is touched, and only while it is still
+ * exactly as last written. A message someone edited is left alone.
+ */
+async function updateLine(
+  author: Person,
   channel: string,
   message: ArchivedReaction,
-  text: string
-): Promise<void> {
-  const fileIds =
-    text.trim() === ''
-      ? await messageFileIds(client, channel, message)
-      : undefined;
-  await client.chat.update({
+  expected: string,
+  next: string,
+  editedBefore: boolean
+): Promise<'edited' | 'changed'> {
+  const current = await fetchMessage(author.client, channel, message);
+  if (!current) {
+    return 'changed';
+  }
+  // An edit time the archive didn't give it means someone edited it in
+  // Slack (our own earlier edits are known from the ledger).
+  if (!editedBefore && current.editedTs !== message.editedTs) {
+    return 'changed';
+  }
+  const text = replaceFooter(current.text, expected, next);
+  if (text === undefined) {
+    return 'changed';
+  }
+  await author.client.chat.update({
     channel,
     ts: message.ts,
     text,
-    ...(fileIds ? { file_ids: fileIds } : {}),
+    ...(text.trim() === '' ? { file_ids: current.fileIds } : {}),
   });
+  return 'edited';
 }
 
 /** Rewrites reaction lines on messages whose authors are connected. */
@@ -130,46 +191,46 @@ async function rewriteLines(
   byFolder: Map<string, MessageIndexConversation>,
   ledger: RestoredLedger,
   nameOf: (archiveId: string) => string
-): Promise<{ edited: number; failed: number }> {
+): Promise<LineResult> {
   const byArchiveId = new Map(people.map((p) => [p.archiveId, p]));
-  let edited = 0;
-  let failed = 0;
+  const result: LineResult = { edited: 0, changed: 0, failed: 0 };
   for (const message of archived) {
     const author = message.author ? byArchiveId.get(message.author) : undefined;
     const conversation = byFolder.get(message.folder);
     const key = ledgerKey(message.folder, message.ts);
     const restored = ledger.restored[key];
-    if (!(author && conversation && restored)) {
+    const expected = ledger.footers[key] ?? footerOf(message.text);
+    if (!(author && conversation && restored && expected)) {
       continue;
     }
-    const text = rewriteReactionLine(
-      message.text,
-      message.reactions,
-      new Set(restored),
-      nameOf
-    );
+    const next = footerFor(message.reactions, new Set(restored), nameOf);
     const destination = resolveDestination(conversation, author.directory);
-    if (
-      text === undefined ||
-      text === ledger.lines[key] ||
-      !destination.channelId
-    ) {
+    if (next === expected || !destination.channelId) {
       continue;
     }
     try {
       // biome-ignore lint/nursery/noAwaitInLoop: edits go one at a time.
-      await editMessage(author.client, destination.channelId, message, text);
-      ledger.lines[key] = text;
-      edited += 1;
+      const outcome = await updateLine(
+        author,
+        destination.channelId,
+        message,
+        expected,
+        next,
+        key in ledger.footers
+      );
+      if (outcome === 'edited') {
+        ledger.footers[key] = next;
+      }
+      result[outcome] += 1;
     } catch (error) {
       const code = (error as { data?: { error?: string } }).data?.error;
       console.warn(
         `Could not edit ${message.folder} ${message.ts}: ${code ?? String(error)}`
       );
-      failed += 1;
+      result.failed += 1;
     }
   }
-  return { edited, failed };
+  return result;
 }
 
 async function readSidecars(zipPath: string): Promise<{
@@ -186,6 +247,27 @@ async function readSidecars(zipPath: string): Promise<{
     throw new Error('manifest or message index not found beside the ZIP');
   }
   return { manifest, index };
+}
+
+/** The ledger for this build; one from another build is refused, never mixed in. */
+async function readLedger(
+  ledgerPath: string,
+  builtAt: string
+): Promise<RestoredLedger> {
+  const ledger = await readJsonFile<RestoredLedger>(ledgerPath);
+  if (!ledger) {
+    return { builtAt, restored: {}, footers: {} };
+  }
+  if (ledger.builtAt !== builtAt || !ledger.footers) {
+    throw new Error(
+      `${ledgerPath} belongs to another build or an older format. After a Reverse Import and re-import, move it aside and run again.`
+    );
+  }
+  return ledger;
+}
+
+function summary(counts: Counts): string {
+  return [...counts].map(([k, v]) => `${v} ${k}`).join(' · ');
 }
 
 export const restoreReactionsCommand: CommandModule<object, RestoreArgs> = {
@@ -220,11 +302,15 @@ export const restoreReactionsCommand: CommandModule<object, RestoreArgs> = {
         throw new Error('--archive is required');
       }
       const zipPath = path.resolve(argv.archive);
+      const dryRun = argv.dryRun ?? false;
       const { manifest, index } = await readSidecars(zipPath);
+      const ledgerPath = sidecarPath(zipPath, 'reactions-restored.json');
+      const ledger = await readLedger(ledgerPath, manifest.builtAt);
       const bot = await getSlackWebClient();
+      const teamId = (await bot.auth.test()).team_id ?? '';
       const after = await fetchSlackMembers(bot);
       const slackUserIds = mapArchiveUsers(manifest.users, after);
-      const people = await connectedPeople(argv, bot, slackUserIds);
+      const people = await connectedPeople(argv, bot, teamId, slackUserIds);
       if (people.length === 0) {
         throw new Error('nobody connected yet (run slack-connect)');
       }
@@ -233,27 +319,27 @@ export const restoreReactionsCommand: CommandModule<object, RestoreArgs> = {
       const names = new Map(
         Object.values(manifest.users).map((u) => [u.slackId, u.name])
       );
-      const ledgerPath = sidecarPath(zipPath, 'reactions-restored.json');
-      const ledger: RestoredLedger = (await readJsonFile<RestoredLedger>(
-        ledgerPath
-      )) ?? { restored: {}, lines: {} };
       const report: Record<string, Record<string, number>> = {};
+      let failures = 0;
       for (const person of people) {
         // biome-ignore lint/nursery/noAwaitInLoop: people one after another.
         const counts = await restoreFor(
           person,
           archived,
           byFolder,
-          argv.dryRun ?? false,
+          dryRun,
           ledger
         );
-        report[names.get(person.archiveId) ?? person.slackId] =
-          Object.fromEntries(counts);
-        console.log(
-          `${names.get(person.archiveId) ?? person.slackId}: ${[...counts].map(([k, v]) => `${v} ${k}`).join(' · ') || 'nothing to restore'}`
-        );
+        failures += counts.get('failed') ?? 0;
+        const label = names.get(person.archiveId) ?? person.slackId;
+        report[label] = Object.fromEntries(counts);
+        console.log(`${label}: ${summary(counts) || 'nothing to restore'}`);
+        if (!dryRun) {
+          // Progress survives an interruption.
+          await writeJsonAtomic(ledgerPath, ledger);
+        }
       }
-      if (!argv.dryRun && (argv.rewriteLines ?? true)) {
+      if (!dryRun && (argv.rewriteLines ?? true)) {
         const lines = await rewriteLines(
           people,
           archived,
@@ -261,12 +347,11 @@ export const restoreReactionsCommand: CommandModule<object, RestoreArgs> = {
           ledger,
           (id) => names.get(id) ?? 'someone'
         );
-        console.log(
-          `Reaction lines rewritten: ${lines.edited}${lines.failed ? ` · ${lines.failed} could not be edited` : ''}`
-        );
-      }
-      if (!argv.dryRun) {
+        failures += lines.failed;
         await writeJsonAtomic(ledgerPath, ledger);
+        console.log(
+          `Reaction lines: ${lines.edited} updated · ${lines.changed} left alone (edited in Slack since the import) · ${lines.failed} failed`
+        );
       }
       const reportPath = sidecarPath(
         zipPath,
@@ -274,10 +359,14 @@ export const restoreReactionsCommand: CommandModule<object, RestoreArgs> = {
       );
       await writeJsonAtomic(reportPath, {
         at: new Date().toISOString(),
-        dryRun: argv.dryRun,
+        dryRun,
         report,
       });
       console.log(`Report: ${reportPath}`);
+      if (failures > 0) {
+        console.error(`${failures} action(s) failed; rerun to retry them.`);
+        process.exit(1);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error('restore-reactions failed:', message);

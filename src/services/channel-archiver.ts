@@ -20,8 +20,25 @@ export type ArchiveOutcome =
   | 'archived'
   | 'already'
   | 'not-found'
+  | 'not-imported'
   | 'needs-member'
   | 'failed';
+
+export interface ChannelRef {
+  id: string;
+  isArchived: boolean;
+  /** Unix seconds. The importer creates channels at import time. */
+  created: number;
+}
+
+/**
+ * Only a channel the import created may be archived. Names are how imported
+ * channels are found, and an older channel with the same name (one the bot
+ * could not see at build time, or renamed since) must never be touched. Pure.
+ */
+export function createdByImport(channel: ChannelRef, builtAt: string): boolean {
+  return channel.created * 1000 >= Date.parse(builtAt);
+}
 
 /** Channels the manifest marks for archiving. Pure. */
 export function archiveTargets(manifest: ArchiveManifest): ArchiveTarget[] {
@@ -38,8 +55,8 @@ export function archiveTargets(manifest: ArchiveManifest): ArchiveTarget[] {
 /** Slack channels the bot can see, by name. */
 export async function channelsByName(
   bot: WebClient
-): Promise<Map<string, { id: string; isArchived: boolean }>> {
-  const byName = new Map<string, { id: string; isArchived: boolean }>();
+): Promise<Map<string, ChannelRef>> {
+  const byName = new Map<string, ChannelRef>();
   let cursor: string | undefined;
   do {
     // biome-ignore lint/nursery/noAwaitInLoop: pagination is sequential.
@@ -54,6 +71,7 @@ export async function channelsByName(
         byName.set(channel.name, {
           id: channel.id,
           isArchived: Boolean(channel.is_archived),
+          created: channel.created ?? 0,
         });
       }
     }
@@ -69,7 +87,7 @@ function errorCode(error: unknown): string | undefined {
 /** Joins a public channel and archives it. */
 export async function archivePublicChannel(
   bot: WebClient,
-  channel: { id: string; isArchived: boolean }
+  channel: ChannelRef
 ): Promise<ArchiveOutcome> {
   if (channel.isArchived) {
     return 'already';
@@ -81,11 +99,6 @@ export async function archivePublicChannel(
   } catch (error) {
     return errorCode(error) === 'already_archived' ? 'already' : 'failed';
   }
-}
-
-export interface ChannelRef {
-  id: string;
-  isArchived: boolean;
 }
 
 export interface ConnectedMember {
@@ -112,6 +125,7 @@ export async function privateChannelsOf(
         byName.set(channel.name, {
           id: channel.id,
           isArchived: Boolean(channel.is_archived),
+          created: channel.created ?? 0,
         });
       }
     }

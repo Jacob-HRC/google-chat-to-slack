@@ -7,11 +7,14 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   type ArchivedReaction,
   addReaction,
+  fetchMessage,
+  footerFor,
+  footerOf,
   ledgerKey,
   markRestored,
-  messageFileIds,
+  pairKey,
   type RestoredLedger,
-  rewriteReactionLine,
+  replaceFooter,
   tasksFor,
 } from '../../services/reaction-restore';
 import {
@@ -100,64 +103,78 @@ describe('tasksFor', () => {
   });
 });
 
-describe('rewriteReactionLine', () => {
+describe('reaction line', () => {
   const [lunch] = archived;
+  const footer = footerOf(lunch.text) ?? '';
 
-  it('keeps only the people still missing', () => {
+  it('names only the reactions not yet real, per person and emoji', () => {
+    // Ken's +1 went through but his heart failed: the heart stays listed.
     expect(
-      rewriteReactionLine(
-        lunch.text,
+      footerFor(lunch.reactions, new Set([pairKey('U_KEN', '+1')]), nameOf)
+    ).toBe('_Reactions: :+1: Amy · :heart: Ken Kicker_');
+    expect(
+      footerFor(
         lunch.reactions,
-        new Set(['U_KEN']),
+        new Set([
+          pairKey('U_KEN', '+1'),
+          pairKey('U_AMY', '+1'),
+          pairKey('U_KEN', 'heart'),
+        ]),
         nameOf
       )
-    ).toBe('Lunch?\n_Reactions: :+1: Amy_');
+    ).toBe('');
   });
 
   it('shows an emoji Slack has no name for as the character', () => {
     expect(
-      rewriteReactionLine(
-        'Hi\n_Reactions: :+1: Amy · \u{1FAEA} Amy_',
-        [
-          { name: '+1', users: ['U_AMY', 'U_KEN'] },
-          { name: '\u{1FAEA}', users: ['U_AMY'] },
-        ],
-        new Set(['U_KEN']),
-        nameOf
-      )
-    ).toBeUndefined();
+      footerFor([{ name: '\u{1FAEA}', users: ['U_AMY'] }], new Set(), nameOf)
+    ).toBe('_Reactions: \u{1FAEA} Amy_');
   });
 
-  it('drops the line once everyone is restored', () => {
-    expect(
-      rewriteReactionLine(
-        lunch.text,
-        lunch.reactions,
-        new Set(['U_KEN', 'U_AMY']),
-        nameOf
-      )
-    ).toBe('Lunch?');
+  it('swaps only the last line, keeping the text as it is now', () => {
+    expect(replaceFooter(lunch.text, footer, '')).toBe('Lunch?');
+    expect(replaceFooter(lunch.text, footer, '_Reactions: :+1: Amy_')).toBe(
+      'Lunch?\n_Reactions: :+1: Amy_'
+    );
+    // A line the author wrote that happens to look like ours is kept.
+    const own = `_Reactions: pending_\nsee above\n${footer}`;
+    expect(replaceFooter(own, footer, '')).toBe(
+      '_Reactions: pending_\nsee above'
+    );
+    // A file-only message ends up empty (the caller passes its files).
+    expect(replaceFooter(`\n${footer}`, footer, '')).toBe('');
   });
 
-  it('returns undefined when nothing changes or there is no line', () => {
+  it('leaves a message alone when its line is not exactly as written', () => {
     expect(
-      rewriteReactionLine(lunch.text, lunch.reactions, new Set(), nameOf)
+      replaceFooter('Lunch at noon?\n_Reactions: edited_', footer, '')
     ).toBeUndefined();
-    expect(
-      rewriteReactionLine('Lunch?', lunch.reactions, new Set(['U_KEN']), nameOf)
-    ).toBeUndefined();
+    expect(replaceFooter('Lunch at noon?', footer, '')).toBeUndefined();
+    expect(replaceFooter(lunch.text, footer, footer)).toBeUndefined();
+  });
+
+  it('finds the line the archive wrote only at the end', () => {
+    expect(footerOf(lunch.text)).toBe(
+      '_Reactions: :+1: Ken Kicker, Amy · :heart: Ken Kicker_'
+    );
+    expect(footerOf('_Reactions: pending_\nhello')).toBeUndefined();
   });
 });
 
 describe('markRestored', () => {
   it('builds on earlier runs without duplicates', () => {
     const ledger: RestoredLedger = {
-      restored: { [ledgerKey('D1', '1.1')]: ['U_KEN'] },
-      lines: {},
+      restored: { [ledgerKey('D1', '1.1')]: [pairKey('U_KEN', '+1')] },
+      footers: {},
     };
-    markRestored(ledger, ledgerKey('D1', '1.1'), 'U_AMY');
-    markRestored(ledger, ledgerKey('D1', '1.1'), 'U_KEN');
-    expect(ledger.restored['D1:1.1']).toEqual(['U_KEN', 'U_AMY']);
+    markRestored(ledger, ledgerKey('D1', '1.1'), 'U_AMY', '+1');
+    markRestored(ledger, ledgerKey('D1', '1.1'), 'U_KEN', '+1');
+    markRestored(ledger, ledgerKey('D1', '1.1'), 'U_KEN', 'heart');
+    expect(ledger.restored['D1:1.1']).toEqual([
+      'U_KEN +1',
+      'U_AMY +1',
+      'U_KEN heart',
+    ]);
   });
 });
 
@@ -184,11 +201,11 @@ describe('addReaction', () => {
   });
 });
 
-describe('messageFileIds', () => {
+describe('fetchMessage', () => {
   const page = {
     messages: [
-      { ts: '5.5', files: [{ id: 'F1' }, { id: 'F2' }] },
-      { ts: '6.6', files: [{ id: 'F3' }] },
+      { ts: '5.5', text: 'a', files: [{ id: 'F1' }, { id: 'F2' }] },
+      { ts: '6.6', text: 'b', files: [{ id: 'F3' }], edited: { ts: '7.7' } },
     ],
   };
   const calls: string[] = [];
@@ -206,14 +223,15 @@ describe('messageFileIds', () => {
   } as unknown as import('@slack/web-api').WebClient;
 
   it('reads top-level messages from history and replies from their thread', async () => {
-    expect(await messageFileIds(client, 'D1', { ts: '5.5' })).toEqual([
-      'F1',
-      'F2',
-    ]);
+    expect(await fetchMessage(client, 'D1', { ts: '5.5' })).toEqual({
+      text: 'a',
+      fileIds: ['F1', 'F2'],
+      editedTs: undefined,
+    });
     expect(
-      await messageFileIds(client, 'D1', { ts: '6.6', threadTs: '5.5' })
-    ).toEqual(['F3']);
-    expect(await messageFileIds(client, 'D1', { ts: '9.9' })).toEqual([]);
+      await fetchMessage(client, 'D1', { ts: '6.6', threadTs: '5.5' })
+    ).toEqual({ text: 'b', fileIds: ['F3'], editedTs: '7.7' });
+    expect(await fetchMessage(client, 'D1', { ts: '9.9' })).toBeUndefined();
     expect(calls).toEqual(['history', 'replies:5.5', 'history']);
   });
 });

@@ -25,6 +25,8 @@ export interface ArchivedReaction {
   ts: string;
   /** Parent ts when the message is a thread reply. */
   threadTs?: string;
+  /** Edit time the archive gave the message (Google's), if any. */
+  editedTs?: string;
   /** Archive user id of the message's author. */
   author?: string;
   text: string;
@@ -60,6 +62,7 @@ export async function readArchiveReactions(
               message.thread_ts && message.thread_ts !== message.ts
                 ? message.thread_ts
                 : undefined,
+            editedTs: message.edited?.ts,
             author: message.user,
             text: message.text,
             reactions: message.reactions.map((r) => ({
@@ -102,39 +105,60 @@ export function tasksFor(
   return tasks;
 }
 
+/** The reaction line the archive wrote: always a message's last line. Pure. */
+export function footerOf(text: string): string | undefined {
+  const last = text.split('\n').at(-1) ?? '';
+  return last.startsWith(REACTION_LINE_PREFIX) ? last : undefined;
+}
+
+/** One person's one emoji on one message; what the ledger tracks. */
+export function pairKey(archiveUserId: string, emoji: string): string {
+  return `${archiveUserId} ${emoji}`;
+}
+
 /**
- * The message text with its reaction line rewritten to name only people
- * whose reactions were not restored, or without the line when none remain.
- * Returns undefined when nothing would change. Pure.
+ * The reaction line naming only reactions not yet real, or '' when none
+ * remain. Tracked per person and emoji, so a failed emoji stays listed even
+ * when the same person's other reactions went through. Pure.
  */
-export function rewriteReactionLine(
-  text: string,
+export function footerFor(
   reactions: { name: string; users: string[] }[],
   restored: Set<string>,
   nameOf: (archiveUserId: string) => string
-): string | undefined {
-  const lines = text.split('\n');
-  const index = lines.findIndex((line) =>
-    line.startsWith(REACTION_LINE_PREFIX)
-  );
-  if (index === -1) {
-    return;
-  }
+): string {
   const remaining = reactions
     .map((r) => ({
       name: r.name,
-      users: r.users.filter((u) => !restored.has(u)),
+      users: r.users.filter((u) => !restored.has(pairKey(u, r.name))),
     }))
     .filter((r) => r.users.length > 0);
-  const kept = lines.filter((_, i) => i !== index);
-  if (remaining.length > 0) {
-    const parts = remaining.map(
-      (r) => `${reactionEmoji(r.name)} ${r.users.map(nameOf).join(', ')}`
-    );
-    kept.splice(index, 0, `${REACTION_LINE_PREFIX}${parts.join(' · ')}_`);
+  if (remaining.length === 0) {
+    return '';
   }
-  const next = kept.join('\n');
-  return next === text ? undefined : next;
+  const parts = remaining.map(
+    (r) => `${reactionEmoji(r.name)} ${r.users.map(nameOf).join(', ')}`
+  );
+  return `${REACTION_LINE_PREFIX}${parts.join(' · ')}_`;
+}
+
+/**
+ * Swaps the reaction line at the end of the message's current text for
+ * `next` (removing it when ''). Undefined when the last line is not exactly
+ * the one expected, which means someone edited the message, or when nothing
+ * would change. Everything above the line is left as it is now. Pure.
+ */
+export function replaceFooter(
+  current: string,
+  expected: string,
+  next: string
+): string | undefined {
+  const lines = current.split('\n');
+  if (lines.at(-1) !== expected) {
+    return;
+  }
+  const body = lines.slice(0, -1);
+  const text = next ? [...body, next].join('\n') : body.join('\n');
+  return text === current ? undefined : text;
 }
 
 export type RestoreOutcome =
@@ -182,39 +206,49 @@ export async function addReaction(
 
 /** What earlier runs did, so reruns and `--only` batches build on each other. */
 export interface RestoredLedger {
-  /** `folder:ts` → archive ids whose reactions are real now. */
+  /** The archive build this ledger belongs to (manifest builtAt). */
+  builtAt?: string;
+  /** `folder:ts` → pairKey(person, emoji) for each reaction now real. */
   restored: Record<string, string[]>;
-  /** `folder:ts` → the text last written to that message. */
-  lines: Record<string, string>;
+  /** `folder:ts` → the reaction line last written ('' once removed). */
+  footers: Record<string, string>;
 }
 
 export function ledgerKey(folder: string, ts: string): string {
   return `${folder}:${ts}`;
 }
 
-/** Adds one person's restored reaction to the ledger. */
+/** Records one person's one emoji as real. */
 export function markRestored(
   ledger: RestoredLedger,
   key: string,
-  archiveUserId: string
+  archiveUserId: string,
+  emoji: string
 ): void {
-  const users = ledger.restored[key] ?? [];
-  if (!users.includes(archiveUserId)) {
-    users.push(archiveUserId);
+  const pairs = ledger.restored[key] ?? [];
+  const pair = pairKey(archiveUserId, emoji);
+  if (!pairs.includes(pair)) {
+    pairs.push(pair);
   }
-  ledger.restored[key] = users;
+  ledger.restored[key] = pairs;
+}
+
+export interface CurrentMessage {
+  text: string;
+  fileIds: string[];
+  /** Edit time Slack has now, if the message was ever edited. */
+  editedTs?: string;
 }
 
 /**
- * The Slack file ids on a message. Slack refuses to edit a message down to
- * empty text unless the edit names its files, which a file-only message
- * needs once its reaction line goes.
+ * The message as it is in Slack now. Slack refuses to edit a message down to
+ * empty text unless the edit names its files, so their ids come along.
  */
-export async function messageFileIds(
+export async function fetchMessage(
   client: WebClient,
   channel: string,
   message: Pick<ArchivedReaction, 'ts' | 'threadTs'>
-): Promise<string[]> {
+): Promise<CurrentMessage | undefined> {
   const range = { latest: message.ts, oldest: message.ts, inclusive: true };
   const page = message.threadTs
     ? await client.conversations.replies({
@@ -224,7 +258,14 @@ export async function messageFileIds(
       })
     : await client.conversations.history({ channel, ...range, limit: 1 });
   const found = page.messages?.find((m) => m.ts === message.ts);
-  return (found?.files ?? []).flatMap((f) => (f.id ? [f.id] : []));
+  if (!found) {
+    return;
+  }
+  return {
+    text: found.text ?? '',
+    fileIds: (found.files ?? []).flatMap((f) => (f.id ? [f.id] : [])),
+    editedTs: found.edited?.ts,
+  };
 }
 
 /** Looks up archive conversations by folder name. Pure. */

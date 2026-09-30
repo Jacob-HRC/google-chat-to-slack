@@ -213,6 +213,12 @@ removes the line once none are missing. Slack shows those messages as
 from people who never connect stay as they are. What each run did is kept in
 `hrc-full.reactions-restored.json`, so `--only` batches build on each other.
 
+The line is edited only while it is exactly as the archive wrote it, at the
+end of the message; a message someone edited in Slack is left alone and
+counted. Progress is saved after each person, and the ledger is tied to the
+build: after a Reverse Import and re-import, move
+`hrc-full.reactions-restored.json` aside before running again.
+
 Tokens live in the keyring as `slack-user:<SlackId>`. Turn Funnel off when
 people are done connecting.
 
