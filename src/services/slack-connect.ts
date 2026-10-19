@@ -20,7 +20,7 @@ import { getToken, setToken } from '../utils/token-manager';
 
 /**
  * What a connected person's token may do: react, tidy their own messages,
- * and archive quiet private channels they are in (see archive-channels).
+ * and archive private channels they are in (see archive-channels).
  */
 export const RESTORE_USER_SCOPES = [
   'reactions:write',

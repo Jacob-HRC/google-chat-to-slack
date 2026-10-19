@@ -4,8 +4,9 @@
  * active and records the decision in the manifest (archiveAfterImport).
  *
  * Slack only lets a member archive a channel. The bot can join a public
- * channel and archive it; it cannot join a private one, so those are listed
- * for a person to archive.
+ * channel and archive it; it cannot join a private one, so those are archived
+ * with a connected member's token, and any no connected member can reach are
+ * listed for a person to archive.
  */
 import type { WebClient } from '@slack/web-api';
 import type { ArchiveManifest } from '../types/slack-export';

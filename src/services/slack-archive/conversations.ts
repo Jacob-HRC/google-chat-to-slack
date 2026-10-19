@@ -14,7 +14,13 @@ import type {
   ConversationPlan,
 } from '../../types/slack-export';
 import { toEpochMicros } from '../../utils/timestamps';
-import { mpimName, normalizeChannelName, slackIdFor, uniqueName } from './ids';
+import {
+  mpimName,
+  normalizeChannelName,
+  prefixedChannelName,
+  slackIdFor,
+  uniqueName,
+} from './ids';
 import { effectiveCreateTime } from './migrated';
 
 export const MPIM_MAX_MEMBERS = 9;
@@ -27,6 +33,13 @@ export interface ConversationOptions {
   usedNames: Set<string>;
   /** Prefix for channels recovered from Google Vault. Empty for none. */
   vaultPrefix?: string;
+  /**
+   * Prefix for every channel made from a Space (named, Vault, meeting
+   * series), ahead of any Vault prefix. Never applied to DM-derived channels.
+   */
+  spacePrefix?: string;
+  /** Archive every channel made from a Space, whatever `archivedSpaces` says. */
+  archiveAllSpaces?: boolean;
   /**
    * Reviewed per-Space decisions (see visibility.ts). When given, a Space
    * missing from it is private and its name is added to `unlisted`.
@@ -176,11 +189,13 @@ function planNamedSpace(
   members: Array<{ chatUserId: string; mapping: ArchiveUserMapping }>
 ): ConversationPlan {
   const kind = namedSpaceKind(input.space, options);
-  const prefix =
-    input.space.source === 'vault' ? (options.vaultPrefix ?? '') : '';
+  const prefix = `${options.spacePrefix ?? ''}${
+    input.space.source === 'vault' ? (options.vaultPrefix ?? '') : ''
+  }`;
   const name = uniqueName(
-    normalizeChannelName(
-      `${prefix}${input.space.displayName}`,
+    prefixedChannelName(
+      prefix,
+      input.space.displayName,
       `space-${input.space.spaceId.toLowerCase()}`
     ),
     options.usedNames
@@ -190,7 +205,10 @@ function planNamedSpace(
     kind,
     id: slackIdFor(kind === 'channel' ? 'C' : 'G', input.space.name),
     name,
-    archived: options.archivedSpaces?.has(input.space.spaceId) || undefined,
+    archived:
+      options.archiveAllSpaces ||
+      options.archivedSpaces?.has(input.space.spaceId) ||
+      undefined,
   };
 }
 

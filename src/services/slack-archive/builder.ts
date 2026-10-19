@@ -37,7 +37,12 @@ import {
   planConversation,
   type SpaceVisibility,
 } from './conversations';
-import { normalizeChannelName, slackIdFor, uniqueName } from './ids';
+import {
+  normalizeChannelName,
+  prefixedChannelName,
+  slackIdFor,
+  uniqueName,
+} from './ids';
 import {
   isMeetingChat,
   type MeetingChatMode,
@@ -76,6 +81,13 @@ export interface BuildArchiveOptions {
   messagesSince?: string;
   /** Prefix for channels recovered from Google Vault. Empty for none. */
   vaultPrefix?: string;
+  /**
+   * Prefix for every channel made from a Space, e.g. "gchat-old-". DMs,
+   * group DMs and channels made from them keep their names.
+   */
+  spacePrefix?: string;
+  /** Archive every channel made from a Space after the import. */
+  archiveAllSpaces?: boolean;
   /**
    * Name of a private channel listing every person in the archive. Slack's
    * importer appears to import people through channel membership, so a
@@ -205,6 +217,8 @@ function emptyManifest(options: BuildArchiveOptions): ArchiveManifest {
       messagesSince: options.messagesSince,
       spaceFilter: options.spaceFilter,
       excludeSpaces: options.excludeSpaces ?? [],
+      spacePrefix: options.spacePrefix || undefined,
+      archiveAllSpaces: options.archiveAllSpaces || undefined,
       slackMembersFetchedAt: options.slackMembers?.fetchedAt,
     },
     users: {},
@@ -435,7 +449,8 @@ function seriesHome(
     kind: 'group',
     id: slackIdFor('G', `meeting-series:${series}`),
     name: uniqueName(
-      normalizeChannelName(
+      prefixedChannelName(
+        shared.conversationOptions.spacePrefix ?? '',
         `mtg-${series}`,
         `mtg-${meeting.space.spaceId.toLowerCase()}`
       ),
@@ -450,6 +465,7 @@ function seriesHome(
     created:
       Math.floor(Date.parse(meeting.space.raw.createTime ?? '') / 1000) || 0,
     purpose: `Google Meet chats from "${series}", one thread per meeting.`,
+    archived: shared.conversationOptions.archiveAllSpaces || undefined,
   };
   const conversation = addConversation(
     shared.model,
@@ -658,6 +674,8 @@ export async function buildArchiveModel(
       // unrelated channel that happens to share a name (e.g. #general).
       usedNames: new Set(options.slackMembers?.channels?.map((c) => c.name)),
       vaultPrefix: options.vaultPrefix,
+      spacePrefix: options.spacePrefix,
+      archiveAllSpaces: options.archiveAllSpaces,
       visibilityBySpace: options.visibilityBySpace,
       archivedSpaces: options.archivedSpaces,
       unlisted: [],

@@ -298,6 +298,15 @@ export function printArchiveReport(model: ArchiveModel, dryRun: boolean): void {
       `   Meeting chats: ${folded.length} folded into ${homes.size} conversation(s), one thread per meeting`
     );
   }
+  const toArchive = Object.values(m.conversations).filter(
+    (c) => c.archiveAfterImport
+  );
+  if (toArchive.length > 0) {
+    const publicCount = toArchive.filter((c) => c.kind === 'channel').length;
+    console.log(
+      `   Archive after import: ${toArchive.length} channel(s)${m.options.archiveAllSpaces ? ', every one made from a Space' : ''} · ${publicCount} public (the bot archives these) · ${toArchive.length - publicCount} private (need a connected member)`
+    );
+  }
   const skipped = Object.values(m.conversations).filter((c) => c.skippedReason);
   if (skipped.length > 0) {
     console.log(

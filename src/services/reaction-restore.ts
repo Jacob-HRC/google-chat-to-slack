@@ -167,7 +167,17 @@ export type RestoreOutcome =
   | 'unreachable'
   | 'message-gone'
   | 'emoji-missing'
+  /** Archived after the import; Slack refuses reactions there for good. */
+  | 'archived'
   | 'failed';
+
+/**
+ * Slack's error for a channel archived after the import: reactions.add says
+ * `is_archived`, chat.update says `is_inactive`. Final, so not a failure.
+ */
+export function isArchivedChannelError(code: string | undefined): boolean {
+  return code === 'is_archived' || code === 'is_inactive';
+}
 
 /** Adds one reaction with the reacting person's own token. */
 export async function addReaction(
@@ -199,6 +209,9 @@ export async function addReaction(
     }
     if (code === 'invalid_name') {
       return 'emoji-missing';
+    }
+    if (isArchivedChannelError(code)) {
+      return 'archived';
     }
     return 'failed';
   }

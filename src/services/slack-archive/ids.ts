@@ -42,6 +42,20 @@ export function normalizeChannelName(
   return normalized || fallback;
 }
 
+/**
+ * `prefix` in front of the normalised name. The name is normalised on its
+ * own first, so one that normalises to nothing takes the fallback rather than
+ * leaving the bare prefix. Cut to 80 like any other name.
+ */
+export function prefixedChannelName(
+  prefix: string,
+  displayName: string,
+  fallback: string
+): string {
+  const name = normalizeChannelName(displayName, fallback);
+  return prefix ? normalizeChannelName(`${prefix}${name}`, name) : name;
+}
+
 /** Appends `-2`, `-3`… until the name is unused; registers it in `used`. */
 export function uniqueName(name: string, used: Set<string>): string {
   let candidate = name;

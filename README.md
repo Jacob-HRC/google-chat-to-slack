@@ -420,6 +420,7 @@ node --max-old-space-size=6144 -r ts-node/register/transpile-only \
 
 In the Slack archive, Vault-recovered channels say so in their purpose.
 `--vault-prefix archive-` also renames them if you want them visually separate.
+It goes after any `--space-prefix`.
 
 ### Build the Slack import archive
 
@@ -429,7 +430,13 @@ googletoslack build-slack-archive --dry-run                 # report only
 googletoslack build-slack-archive                           # ZIP under data/slack-archive/
 googletoslack build-slack-archive --space general --unpacked ./check   # one Space plus a readable copy
 googletoslack build-slack-archive --user-overrides overrides.json      # name former staff placeholders
+googletoslack build-slack-archive --space-prefix gchat-old- --archive-all-spaces  # old Spaces as read-only history
 ```
+
+`--space-prefix` puts a prefix on every channel made from a Space (named,
+Vault and `mtg-` meeting channels). `--archive-all-spaces` marks all of them
+to be archived after the import by `archive-channels`. Neither touches DMs,
+group DMs, or the `group-…` and `archive-dm-…` channels made from them.
 
 `build-slack-archive` reads the workspace store (never Google) and writes the
 archive format Slack's importer expects: `users.json`, `channels.json`,
@@ -441,7 +448,7 @@ How Google conversations map to Slack:
 
 | Google | Slack | Notes |
 | --- | --- | --- |
-| Named Space | private channel (`--space-visibility public` for public) | Slack can only merge into existing *public* channels. |
+| Named Space | private channel (`--space-visibility public` for public) | Slack can only merge into existing *public* channels. `--space-prefix` and `--archive-all-spaces` apply. |
 | DM, or group chat with 2 people | direct message | Both people must be in `users.json`; former staff are deactivated placeholders. |
 | Group chat with 3 to 9 people | group DM (mpim) | Slack's group DM limit is 9. |
 | Group chat with more than 9 | private channel `group-…` | |

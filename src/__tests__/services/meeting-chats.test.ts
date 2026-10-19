@@ -205,6 +205,62 @@ describe('meeting chats', () => {
     );
   });
 
+  it('prefixes and archives meeting series channels, never the folded DMs', async () => {
+    const model = await buildArchiveModel({
+      storeDir: dir,
+      teamId: 'T1',
+      spaceFilter: [],
+      skipBotDms: true,
+      spaceVisibility: 'private',
+      deletedPolicy: 'tombstone',
+      fileStrategy: 'manifest',
+      overrides: {},
+      meetingChats: 'fold',
+      spacePrefix: 'gchat-old-',
+      archiveAllSpaces: true,
+    });
+    const series = model.conversations.find(
+      (c) => c.plan.name === 'gchat-old-mtg-staff-meeting'
+    );
+    expect(series?.plan.archived).toBe(true);
+    expect(
+      model.manifest.conversations[series?.plan.spaceId ?? '']
+        .archiveAfterImport
+    ).toBe(true);
+    const group = model.conversations.find((c) => c.plan.kind === 'mpim');
+    expect(group?.plan.name.startsWith('mpdm-')).toBe(true);
+    expect(group?.plan.archived).toBeUndefined();
+    expect(model.manifest.conversations.MEET0sync.mergedInto).toBe(
+      group?.plan.name
+    );
+  });
+
+  it('channels: prefixes and archives each meeting channel', async () => {
+    const model = await buildArchiveModel({
+      storeDir: dir,
+      teamId: 'T1',
+      spaceFilter: [],
+      skipBotDms: true,
+      spaceVisibility: 'private',
+      deletedPolicy: 'tombstone',
+      fileStrategy: 'manifest',
+      overrides: {},
+      meetingChats: 'channels',
+      spacePrefix: 'gchat-old-',
+      archiveAllSpaces: true,
+    });
+    const meetings = model.conversations.filter((c) =>
+      c.plan.spaceId.startsWith('MEET0')
+    );
+    expect(meetings.map((c) => c.plan.name).sort()).toEqual([
+      'gchat-old-pastor-ken-1-1-apr-1',
+      'gchat-old-pastor-ken-admin-sync-feb-2',
+      'gchat-old-staff-meeting-mar-10',
+      'gchat-old-staff-meeting-mar-3',
+    ]);
+    expect(meetings.every((c) => c.plan.archived)).toBe(true);
+  });
+
   it('discard: leaves them out and says so', async () => {
     const folded = await build('fold');
     const model = await build('discard');

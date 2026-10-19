@@ -10,6 +10,7 @@ import {
   fetchMessage,
   footerFor,
   footerOf,
+  isArchivedChannelError,
   ledgerKey,
   markRestored,
   pairKey,
@@ -178,6 +179,15 @@ describe('markRestored', () => {
   });
 });
 
+describe('isArchivedChannelError', () => {
+  it('knows both of Slack’s codes for an archived channel', () => {
+    expect(isArchivedChannelError('is_archived')).toBe(true); // reactions.add
+    expect(isArchivedChannelError('is_inactive')).toBe(true); // chat.update
+    expect(isArchivedChannelError('ratelimited')).toBe(false);
+    expect(isArchivedChannelError(undefined)).toBe(false);
+  });
+});
+
 describe('addReaction', () => {
   const task = { folder: 'D1', ts: '1.1', name: '+1' };
 
@@ -193,6 +203,8 @@ describe('addReaction', () => {
     expect(await addReaction(client, destination, task)).toBe('message-gone');
     slack.reactionError = 'invalid_name';
     expect(await addReaction(client, destination, task)).toBe('emoji-missing');
+    slack.reactionError = 'is_archived';
+    expect(await addReaction(client, destination, task)).toBe('archived');
     slack.reactionError = 'ratelimited';
     expect(await addReaction(client, destination, task)).toBe('failed');
     expect(

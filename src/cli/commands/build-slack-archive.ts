@@ -57,6 +57,8 @@ type BuildArgs = {
   messagesSince?: string;
   teamId?: string;
   vaultPrefix?: string;
+  spacePrefix?: string;
+  archiveAllSpaces?: boolean;
   placeholderEmailDomain?: string;
   slackMembers?: string;
   usersOverlay?: string;
@@ -99,7 +101,10 @@ async function loadSlackMembers(
   return snapshot;
 }
 
-async function loadVisibility(filePath: string): Promise<{
+async function loadVisibility(
+  filePath: string,
+  archiveAllSpaces: boolean
+): Promise<{
   visibility: Map<string, Visibility>;
   archived: Set<string>;
 }> {
@@ -107,7 +112,7 @@ async function loadVisibility(filePath: string): Promise<{
   const publicCount = rows.filter((r) => r.visibility === 'public').length;
   const archived = new Set(rows.filter((r) => r.archive).map((r) => r.spaceId));
   console.log(
-    `Channel visibility from ${filePath}: ${publicCount} public, ${rows.length - publicCount} private; anything unlisted is private. ${archived.size} will import archived.`
+    `Channel visibility from ${filePath}: ${publicCount} public, ${rows.length - publicCount} private; anything unlisted is private. ${archiveAllSpaces ? 'Its archive column is ignored: --archive-all-spaces archives every Space.' : `${archived.size} marked to archive after the import.`}`
   );
   return {
     visibility: new Map(rows.map((r) => [r.spaceId, r.visibility])),
@@ -149,6 +154,27 @@ async function requireOverlay(filePath: string): Promise<UserOverlay> {
   return overlay;
 }
 
+/**
+ * Lowercase letters, digits, `-` and `_`, starting with a letter or digit and
+ * ending in a separator, so `gchat-old` can't produce `gchat-oldgeneral`.
+ */
+const SPACE_PREFIX_REGEX = /^[a-z0-9][a-z0-9_-]*[-_]$/;
+const SPACE_PREFIX_MAX = 40;
+
+export function checkSpacePrefix(
+  prefix: string | undefined
+): string | undefined {
+  if (!prefix) {
+    return;
+  }
+  if (!SPACE_PREFIX_REGEX.test(prefix) || prefix.length > SPACE_PREFIX_MAX) {
+    throw new Error(
+      `--space-prefix must be lowercase letters, digits, "-" or "_", start with a letter or digit, end in "-" or "_", and be at most ${SPACE_PREFIX_MAX} characters (got "${prefix}")`
+    );
+  }
+  return prefix;
+}
+
 async function toBuildOptions(argv: BuildArgs): Promise<BuildArchiveOptions> {
   if (argv.files === 'hosted' && !argv.filesBaseUrl) {
     throw new Error('--files hosted requires --files-base-url');
@@ -163,7 +189,10 @@ async function toBuildOptions(argv: BuildArgs): Promise<BuildArchiveOptions> {
     : {};
   const slackMembers = await loadSlackMembers(argv);
   const visibilityList = argv.channelVisibility
-    ? await loadVisibility(path.resolve(argv.channelVisibility))
+    ? await loadVisibility(
+        path.resolve(argv.channelVisibility),
+        argv.archiveAllSpaces ?? false
+      )
     : undefined;
   return {
     storeDir: path.resolve(argv.input),
@@ -181,6 +210,8 @@ async function toBuildOptions(argv: BuildArgs): Promise<BuildArchiveOptions> {
     firstSeenAfterRun: argv.firstSeenAfter,
     messagesSince: argv.messagesSince,
     vaultPrefix: argv.vaultPrefix,
+    spacePrefix: checkSpacePrefix(argv.spacePrefix),
+    archiveAllSpaces: argv.archiveAllSpaces ?? false,
     placeholderEmailDomain: argv.placeholderEmailDomain,
     slackMembers,
     meetingChats: (argv.meetingChats ?? 'fold') as MeetingChatMode,
@@ -336,9 +367,21 @@ export const buildSlackArchiveCommand: CommandModule<object, BuildArgs> = {
       })
       .option('vault-prefix', {
         describe:
-          'Prefix for channels recovered from Google Vault, e.g. "archive-". Their lower fidelity is noted in the channel purpose either way.',
+          'Prefix for channels recovered from Google Vault, e.g. "archive-", placed after any --space-prefix. Their lower fidelity is noted in the channel purpose either way.',
         type: 'string',
         default: '',
+      })
+      .option('space-prefix', {
+        describe:
+          'Prefix for every channel made from a Google Chat Space, including Vault Spaces and mtg- meeting channels, e.g. "gchat-old-" (include the trailing "-"). Goes before any --vault-prefix. DMs, group DMs and the channels made from them keep their names.',
+        type: 'string',
+        default: '',
+      })
+      .option('archive-all-spaces', {
+        describe:
+          "Archive every channel made from a Space after the import (run archive-channels), whatever the visibility list says. Private ones need a connected member's token. DMs and channels made from them are never archived.",
+        type: 'boolean',
+        default: false,
       })
       .option('slack-members', {
         describe:

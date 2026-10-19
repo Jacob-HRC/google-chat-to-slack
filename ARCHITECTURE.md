@@ -313,12 +313,12 @@ writing the ZIP (`yazl`).
 
 | Module | Responsibility |
 | --- | --- |
-| `ids.ts` | Deterministic Slack-shaped ids (`U…`, `C…`, `G…`, `D…`, `F…`) from Google ids via SHA-256, channel-name normalisation, `mpdm-a--b--c-1` names. |
+| `ids.ts` | Deterministic Slack-shaped ids (`U…`, `C…`, `G…`, `D…`, `F…`) from Google ids via SHA-256, channel-name normalisation (with an optional prefix, added after the name is normalised so an empty name still takes its fallback), `mpdm-a--b--c-1` names. |
 | `users.ts` | `users.json` rows: name + email only; deactivated for anyone not active in Google; overrides for placeholders. |
-| `conversations.ts` | Space → channel/group/dm/mpim decision, member lists (members ∪ senders), creator, created time. |
+| `conversations.ts` | Space → channel/group/dm/mpim decision, member lists (a named Space's current members, falling back to its posters; members ∪ senders for DMs and group chats), creator, created time. `--space-prefix` and `--archive-all-spaces` apply to channels made from Spaces only. |
 | `text.ts` | Google formattedText → mrkdwn: `<users/id>` → `<@U…>`, `<url|label>` kept, `& < >` escaped outside tokens, bullets → `•`; reaction short names via `node-emoji` plus a table for newer emoji. |
 | `messages.ts` | Per conversation: include/omit (deleted policy, delta cut-offs), unique `ts` (+1µs on collision), threads (`thread_ts`, `reply_count`, `replies`, `parent_user_id`), `edited`, reactions, quoted messages, files (manifest or hosted), Drive links, day bucketing (UTC). |
-| `builder.ts` | Loads the store, collects referenced people, runs the above, fills `archive-manifest.json`. |
+| `builder.ts` | Loads the store, collects referenced people, runs the above, fills `archive-manifest.json`. Gives `mtg-` meeting-series channels the Space prefix and archive mark. |
 | `writer.ts` | Stable entry order, ZIP + unpacked output, console report. |
 
 ### Google Vault path (member-less spaces)

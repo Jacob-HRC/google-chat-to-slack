@@ -173,7 +173,7 @@ export const archiveChannelsCommand: CommandModule<
 > = {
   command: 'archive-channels',
   describe:
-    'After the import: archive the channels the visibility list marked archive=yes. The bot archives public ones; private ones are archived with the token of a member who approved the app (slack-connect). Rerun as more people approve.',
+    "After the import: archive the channels the manifest marks for archiving (the visibility list's archive column, or every Space when built with build-slack-archive --archive-all-spaces). The bot archives public ones; private ones are archived with the token of a member who approved the app (slack-connect). Rerun as more people approve.",
   builder: (yargs) =>
     yargs
       .option('archive', {

@@ -135,7 +135,8 @@ export interface ConversationPlan {
   topic?: string;
   skippedReason?: string;
   /**
-   * To be archived after the import (named Spaces only; see visibility.ts).
+   * To be archived after the import: Spaces the visibility list marks, or
+   * every channel made from a Space with --archive-all-spaces.
    * Never written as is_archived: Slack's importer skips archived channels.
    */
   archived?: boolean;
@@ -241,6 +242,10 @@ export interface ArchiveManifest {
     messagesSince?: string;
     spaceFilter: string[];
     excludeSpaces: string[];
+    /** Prefix on every channel made from a Space; see --space-prefix. */
+    spacePrefix?: string;
+    /** Every channel made from a Space is archived after the import. */
+    archiveAllSpaces?: boolean;
     /** When the Slack member snapshot used for mapping was fetched. */
     slackMembersFetchedAt?: string;
   };

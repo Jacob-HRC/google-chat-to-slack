@@ -9,8 +9,9 @@
  * the list is built private, with a warning, so a Space created after the
  * review can never go public by accident.
  *
- * The same list says which channels to import already archived: `archive`
+ * The same list says which channels to archive after the import: `archive`
  * is suggested from the date of the last message and can be overridden.
+ * `--archive-all-spaces` overrides it for every Space.
  */
 import type { StoredMessage, StoredSpace } from '../../types/export-store';
 import { effectiveCreateTime } from './migrated';
@@ -26,7 +27,7 @@ export interface VisibilityRow {
   /** Date (YYYY-MM-DD) of the last message, by its real date; '' when empty. */
   lastMessage: string;
   visibility: Visibility;
-  /** Import the channel archived. Undefined while undecided. */
+  /** Archive the channel after the import. Undefined while undecided. */
   archive?: boolean;
   reason: string;
 }

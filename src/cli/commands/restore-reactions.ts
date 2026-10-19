@@ -8,6 +8,7 @@ import {
   fetchMessage,
   footerFor,
   footerOf,
+  isArchivedChannelError,
   ledgerKey,
   markRestored,
   type RestoredLedger,
@@ -54,6 +55,8 @@ interface LineResult {
   edited: number;
   /** Someone changed the message since the import; left alone. */
   changed: number;
+  /** In a channel archived after the import; can never be edited. */
+  archived: number;
   failed: number;
 }
 
@@ -193,7 +196,7 @@ async function rewriteLines(
   nameOf: (archiveId: string) => string
 ): Promise<LineResult> {
   const byArchiveId = new Map(people.map((p) => [p.archiveId, p]));
-  const result: LineResult = { edited: 0, changed: 0, failed: 0 };
+  const result: LineResult = { edited: 0, changed: 0, archived: 0, failed: 0 };
   for (const message of archived) {
     const author = message.author ? byArchiveId.get(message.author) : undefined;
     const conversation = byFolder.get(message.folder);
@@ -224,6 +227,10 @@ async function rewriteLines(
       result[outcome] += 1;
     } catch (error) {
       const code = (error as { data?: { error?: string } }).data?.error;
+      if (isArchivedChannelError(code)) {
+        result.archived += 1;
+        continue;
+      }
       console.warn(
         `Could not edit ${message.folder} ${message.ts}: ${code ?? String(error)}`
       );
@@ -350,7 +357,7 @@ export const restoreReactionsCommand: CommandModule<object, RestoreArgs> = {
         failures += lines.failed;
         await writeJsonAtomic(ledgerPath, ledger);
         console.log(
-          `Reaction lines: ${lines.edited} updated · ${lines.changed} left alone (edited in Slack since the import) · ${lines.failed} failed`
+          `Reaction lines: ${lines.edited} updated · ${lines.changed} left alone (edited in Slack since the import) · ${lines.archived} in archived channels · ${lines.failed} failed`
         );
       }
       const reportPath = sidecarPath(

@@ -411,13 +411,28 @@ Johanna Moore (highridgemw.com) whose exact addresses are unknown.
   (277 Spaces; suggested 152 public, 125 private: 37 by name, 88 because only
   one or two members remain). Build with --channel-visibility; unlisted
   Spaces are private. Jacob to review the list.
-- Vault-recovered Spaces: --vault-prefix archive-.
+- Vault-recovered Spaces: --vault-prefix archive-. Superseded 2026-10-19:
+  every Space, Vault or not, is `gchat-old-<name>` (see below).
 - Deleted messages: placeholder ("This message was deleted in Google Chat"), i.e. --deleted tombstone (the default).
 - Visibility review Sheet (in Jacob's Drive, 2026-09-23):
   https://docs.google.com/spreadsheets/d/1tOMUH-GFNtuhCBZqA7FlwPAUK7AmHzzciUVGLdXRcP4/edit
   Tab "Channels": Space, Visibility (dropdown), reason, members, messages,
   source, Space ID. When Jacob is done, read it back into
   data/slack/channel-visibility.csv by Space ID.
+
+### Old Spaces as archived history (Jacob, 2026-10-19)
+
+- Every channel made from a Space (named, Vault, `mtg-` meeting channels) is
+  `gchat-old-<name>` and archived after the import. The team creates new
+  working channels by hand and assigns their membership.
+- DMs, group DMs and the `group-…`/`archive-dm-…` channels made from them
+  migrate as they are: no prefix, not archived.
+- `gchat-old-` channels keep the Space's current members, so the people who
+  could read a private Space can still read its archived channel. (An `mtg-`
+  channel has the people from its series' meetings too small or too large for
+  a DM.)
+- Build with `--space-prefix gchat-old- --archive-all-spaces` and no
+  `--vault-prefix`. Plan: .claude/tasks/gchat-old-prefix.md.
 
 ### Pilot plan (agreed 2026-09-23)
 

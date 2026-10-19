@@ -41,7 +41,9 @@ so steps 3 and 4 are done by hand. Everything around them is scripted.
       <date>` fills `archive` for rows with no decision yet (last message
       before the date, or none). Rows marked `yes` still import active,
       because Slack's importer skips a channel the export marks archived;
-      they are archived after the reaction restore (step 7).
+      they are archived after the reaction restore (step 7). The HRC build
+      passes `--archive-all-spaces`, which archives every channel made from a
+      Space and ignores this column, so `--archive-before` isn't needed.
 - [ ] A fresh roster: `pnpm start slack-members`. Take it right before the
       build. Anyone who joins Slack after this point is treated as new.
 - [ ] Optional, for checking your own DMs: a user token. Reinstall the Chat
@@ -87,19 +89,38 @@ node --max-old-space-size=6144 -r ts-node/register bin/googletoslack.ts \
   --meeting-chats fold \
   --large-files data/slack/large-files.json \
   --channel-visibility data/slack/channel-visibility.csv \
-  --vault-prefix archive- \
+  --space-prefix gchat-old- \
+  --archive-all-spaces \
   --users-overlay data/vault-exports/users-overlay.json \
   --user-overrides data/vault-exports/manual-addresses.json \
   --output data/slack-archive/hrc-full.zip
 ```
 
 The larger heap is needed for the full store; `pnpm start` is fine for a
-`--space` pilot. Check the report:
+`--space` pilot.
+
+`--space-prefix gchat-old-` names every channel made from a Google Chat Space
+`gchat-old-<name>`. That covers named Spaces, Vault-recovered Spaces and the
+`mtg-` meeting channels. `--archive-all-spaces` marks all of them to be archived
+after the import (step 7), so they hold the history read-only while the team
+works in new channels set up by hand. Conversations that were DMs or group
+chats in Google keep their names and are never archived: DMs, group DMs, and
+the `group-…` and `archive-dm-…` channels. Each `gchat-old-` channel keeps the
+Space's current members, because only members can read an archived private
+channel and nobody can be added without unarchiving it. (An `mtg-` channel
+has the people from its series' meetings that were too small or too large for
+a DM; the rest fold into their DMs and group DMs.)
+
+Check the report:
 
 - **Validation** must say the archive matches the importer's rules. Errors
   block the write.
 - **People** should show 0 with no address and no DMs at risk.
 - **Files** shows how many are hosted and how many Drive items stay as links.
+- **Archive after import** counts the channels step 7 should archive, split
+  into public (the bot archives these) and private (each needs a member who
+  approved the app). The 2026-10-19 dry run gave 289: 277 Spaces (Vault
+  included) and 12 `mtg-` meeting channels, 109 public and 180 private.
 
 Beside the ZIP you get `hrc-full.archive-manifest.json`,
 `hrc-full.message-index.json`, `hrc-full.members-before.json` and
@@ -131,9 +152,10 @@ Import → Slack**. Upload the ZIP (not the sidecars).
   the members already in Slack. For everyone else choose **Create as
   deactivated users** (it can be applied to all unmapped users at once).
   Never pick "Invite" or "Create as active".
-- **Channels:** imported Spaces are private channels. Names already taken in
-  Slack were renamed at build time (`general` → `general-2`), so nothing
-  merges into an existing channel.
+- **Channels:** imported Spaces are `gchat-old-…` channels, public or private
+  as the visibility list says. Names already taken in Slack were renamed at
+  build time (`gchat-old-general` → `gchat-old-general-2`), so nothing merges
+  into an existing channel.
 - Start the import. Leave `serve-files` running and watch its progress line.
   The count of fetched files should climb toward the total.
 
@@ -207,12 +229,18 @@ build: after a Reverse Import and re-import, move
 Tokens live in the keyring as `slack-user:<SlackId>`. Turn Funnel off when
 people are done connecting.
 
-## 7. When the approval window closes: archive the quiet channels
+## 7. When the approval window closes: archive the old Space channels
 
 Archive only after the reaction restore has run for everyone who approved:
 Slack refuses reactions and edits in an archived channel, so archiving
 earlier would leave those channels with the text line instead of real
-reactions.
+reactions. With `--archive-all-spaces` this closes reaction restore for every
+`gchat-old-` channel; after it, only DMs, group DMs and the `group-…` and
+`archive-dm-…` channels can still get reactions back. Later restore runs
+count reactions and lines in archived channels as "archived", not as
+failures. Until then the
+`gchat-old-` channels are open for posting, so ask the team to start in their
+new channels from day one.
 
 ```bash
 pnpm start restore-reactions --archive data/slack-archive/hrc-full.zip
@@ -220,12 +248,27 @@ pnpm start archive-channels --archive data/slack-archive/hrc-full.zip --dry-run
 pnpm start archive-channels --archive data/slack-archive/hrc-full.zip
 ```
 
-The bot joins and archives each public channel marked `archive=yes` (the app
-needs `channels:manage`). It cannot join private channels, so each of those is
+The bot joins and archives each public channel marked for archiving (with
+`--archive-all-spaces`, every public `gchat-old-` channel; the app needs
+`channels:manage`). It cannot join private channels, so each of those is
 archived with the token of a member who approved the app (the approval
 includes `groups:write`). Slack shows that member as having archived the
 channel. Only channels the import created are touched. Whatever no connected
 member can reach is listed in `hrc-full.archive-private.txt` for an admin.
+
+Expect that list to be long. Only people already active in Slack can approve
+the app, and many private Spaces are left with only former staff, who are
+imported deactivated. On the 2026-10-19 store, 128 of the 180 private
+`gchat-old-` channels include Jacob or Ken, 145 include someone already active
+in Slack, and 35 have only deactivated members. Run the `--dry-run` as soon
+as Jacob and Ken have connected to see how many remain. A private channel
+whose members are all deactivated is invisible to everyone active, so leaving
+it unarchived exposes nothing. For the others, ask a member to approve the app and rerun, or archive
+it from Slack's admin channel management if the plan allows that for private
+channels (not yet checked).
+
+Archive `chat-import-members` by hand once verification is done. It holds no
+messages and exists only so the importer brings everyone in.
 
 ## If files did not arrive
 
@@ -258,4 +301,13 @@ first.
 - Later deltas: `--first-seen-after <runId>` or `--messages-since <time>`.
   Private channels can't be merged into, so a delta for a private channel
   arrives as a new channel. Deltas are clean for DMs only if Slack appends to
-  the existing DM, which the pilot should confirm.
+  the existing DM, which the pilot should confirm. A delta for a Space never
+  lands in its archived `gchat-old-` channel. A public one builds as a new
+  `gchat-old-<name>-2`, because the roster lists archived public channels as
+  taken. A private one doesn't: the bot isn't in the imported private
+  channels, so the roster can't see their names, and the delta reuses
+  `gchat-old-<name>`. What the importer does with that clash is untested, and
+  archive-channels won't match the result, so check and archive those by
+  hand.
+- If a kept pilot was a Space, it was built without the prefix and isn't in
+  the full manifest. Rename and archive its channel by hand.
