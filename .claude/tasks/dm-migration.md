@@ -529,3 +529,34 @@ match; Ken DM 0 missing (6 extra are live Slack messages), 351 images
 re-encoded by Slack, 1 generic-typed JPEG re-encoded (Model#.jpg). The two
 big PDFs show as Drive links in their original messages. Hosting off.
 Pilot left in place for now; reverse before the full import.
+
+## Reactions, option 2: restore real reactions (0ffc0bf)
+
+- `slack-connect` (src/services/slack-connect.ts): OAuth page on 127.0.0.1:8788, behind
+  `tailscale funnel --https=8443 --set-path=/slack`. Accepts /slack/connect and /connect
+  (Funnel may strip the mount). One-use state; `--allow` restricts ids; token goes to the
+  keyring `slack-user:<SlackId>`; registry (ids, names, no tokens) at data/slack/connected-users.json.
+  Client ID/Secret from env SLACK_CLIENT_ID/SECRET or keyring slack-client-id/-secret.
+- `restore-reactions --archive <zip> [--only ids] [--dry-run] [--no-rewrite-lines]`:
+  reads reactions from the ZIP day files, maps archive→Slack ids by email, resolves each
+  conversation with the person's own token, reactions.add per reaction. Then chat.update
+  (author's token) rewrites the `_Reactions:` line to name only people still missing.
+  Ledger `<zip>.reactions-restored.json` = {restored, lines}; report per run.
+- Real data check: pilot-ken.zip has 279 messages with reactions; v5 has no text lines
+  (built before 3c794d4), so line rewriting needs a v6 pilot to be tested.
+- Blocked on Jacob: app Client ID/Secret into 1Password, redirect URL + user scopes
+  (reactions:write, channels:read, channels:history) added, app reinstalled.
+
+### Live test on the v6 pilot (2026-09-28)
+
+- v6 = Ken DM + test DM + members channel, with reaction lines and Slack emoji names
+  (ad9b5cc: node-emoji → emoji-datasource; ~8,200 store reactions had non-Slack names).
+- First import lost 143 messages: serve-files died with the Claude session at 414/569
+  files. Servers now run under `setsid nohup`. Reversed, re-imported: 0 missing.
+- Imported thread replies land in participants' Activity as unread (seen on Ken).
+  Slackbot posts ephemeral "can't import that type of file from Google Drive" to the
+  author of each message linking a Drive folder/Form. Both harmless; Jacob will warn
+  the 5 existing members before cutover.
+- restore-reactions: 129 + 151 added. 273/279 lines removed; 6 file-only messages
+  failed with `no_text` → fixed in e382beb (chat.update with file_ids).
+- Tokens from slack-connect are the same per user+app as the install token.
