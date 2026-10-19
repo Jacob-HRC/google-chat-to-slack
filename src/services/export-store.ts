@@ -557,6 +557,9 @@ function applyUpdate(
   };
 }
 
+/** Failed reaction fetches before a message stops being retried. */
+export const MAX_REACTION_FETCH_ATTEMPTS = 3;
+
 /** A listed message whose content matches the stored one. */
 function mergeUnchanged(
   existing: StoredMessage,
@@ -571,6 +574,7 @@ function mergeUnchanged(
   const needsReactions =
     (hasReactions(fetched) || existing.reactions.length > 0) &&
     existing.reactionsFetchedRun === undefined &&
+    (existing.reactionFetchAttempts ?? 0) < MAX_REACTION_FETCH_ATTEMPTS &&
     !existing.isDeleted &&
     !fetched.deleteTime;
   if (needsReactions) {
@@ -636,10 +640,11 @@ function mergeOne(
   }
   diff.reactionRefresh.push(existing.name);
   // Unset until the refetch succeeds, so a crash before it can't leave the
-  // old reactions looking current.
+  // old reactions looking current. New content earns fresh attempts.
   return {
     ...applyUpdate(existing, fetched, options),
     reactionsFetchedRun: undefined,
+    reactionFetchAttempts: undefined,
   };
 }
 

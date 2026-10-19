@@ -249,8 +249,8 @@ data/workspace/
    named Space in the customer; those not discovered in step 2 are reported
    with their members. DMs cannot be found this way (the API only returns
    `spaceType = "SPACE"`).
-4. Per space, sequentially: memberships → messages → merge → reactions →
-   user resolution → attachment index → downloads → state `complete`.
+4. Per space, sequentially: memberships → messages → merge → attachment
+   index → reactions → user resolution → downloads → state `complete`.
    Each step persists before the next starts, so a crash costs at most one
    space's partial work; `--resume` reuses the interrupted run id and skips
    spaces already complete in it.
@@ -260,13 +260,28 @@ data/workspace/
    leave a gap. A space never listed in full is listed without a cutoff.
    A space is left alone (`isInactiveSince`) when the store holds it
    complete, neither the listing's `lastActiveTime` nor the newest stored
-   message is after its cutoff, no download is still worth retrying, and
-   `membershipCount` is unchanged. Its space record is refreshed, and a named
+   message is after its cutoff, no download is still worth retrying, no
+   reaction fetch is pending (`reactionsPending`, counted once from the
+   stored messages for older states; three failed fetches end the retries),
+   and `membershipCount` is unchanged. Coverage is `listedThrough`, the
+   start of the last listing that reached back to the previous coverage;
+   states from before it fall back to `lastFullListingAt`, because old
+   `--since` runs stamped `lastMessagesSyncAt` after listing only a window.
+   A space's last-listing time is when its listing started, so a stalled run
+   can't claim coverage it doesn't have. A complete space is marked part-way
+   before the run writes anything for it. Its space record is refreshed, and a named
    Space's members too (a swap keeps the count). A failed member listing
    keeps the stored count, so it can't make a stale member list look
    current. Attachments are indexed before a space's messages are saved, and
    a space left part-way (or with no state) by an earlier run is re-indexed
-   in full and has its unfetched reactions fetched.
+   in full. Unfetched reactions are fetched whatever the listing window, and
+   members stored but never resolved into users.json are resolved even when
+   the space is skipped. After the spaces, people still `unknown` (their
+   lookup failed) are retried once; only a directory match is kept, since a
+   stored record can't tell deleted from external. `users.json` is written
+   only when someone changed. A message whose reaction fetch failed three
+   times is not retried until its content changes; the run log lists each
+   failure.
    `--no-skip-inactive` lists every space; `--refresh-users` then also
    reaches people referenced only in skipped spaces. The cutoff is saved on
    the run pointer, and `--resume` reuses it.

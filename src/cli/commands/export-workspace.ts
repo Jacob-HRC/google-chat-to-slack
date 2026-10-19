@@ -135,7 +135,8 @@ export const exportWorkspaceCommand: CommandModule<
         default: 3,
       })
       .option('refresh-users', {
-        describe: 'Re-query the directory for every referenced person.',
+        describe:
+          'Re-query the directory for everyone referenced in the conversations this run syncs. With --since, add --no-skip-inactive to reach every conversation.',
         type: 'boolean',
         default: false,
       })

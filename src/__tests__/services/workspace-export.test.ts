@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { mergeMessages, mergeSpace } from '../../services/export-store';
+import {
+  mergeMessages,
+  mergeSpace,
+  toStoredMessage,
+} from '../../services/export-store';
 import {
   chooseReaderSubject,
   collectUserRefs,
@@ -8,6 +12,7 @@ import {
   isInactiveSince,
   listingCutoff,
   matchesSpaceFilter,
+  pendingReactions,
   toStoredReaction,
 } from '../../services/workspace-export';
 import type {
@@ -19,6 +24,7 @@ import {
   MEMBERSHIPS_DM,
   MEMBERSHIPS_GENERAL,
   MSG_FROM_FORMER_USER,
+  MSG_REPLY_WITH_REACTION,
   REACTIONS_MSG002,
   SPACE_BOT_DM,
   SPACE_DM,
@@ -216,6 +222,7 @@ describe('isInactiveSince', () => {
       state: complete,
       since,
       hasRetryableAttachments: false,
+      reactionsPending: 0,
       ...overrides,
     });
 
@@ -262,6 +269,7 @@ describe('isInactiveSince', () => {
     // Members never fetched: the count can't be trusted.
     expect(check({ existing: { ...existing, memberships: [] } })).toBe(false);
     expect(check({ hasRetryableAttachments: true })).toBe(false);
+    expect(check({ reactionsPending: 1 })).toBe(false);
     // Never listed in full: a since run stored only part of its history.
     expect(
       check({ state: { ...complete, lastFullListingAt: undefined } })
@@ -296,21 +304,45 @@ describe('listingCutoff', () => {
 
   it('uses the cutoff when the last listing came after it', () => {
     expect(
-      listingCutoff(
-        since,
-        state({ lastMessagesSyncAt: '2026-10-19T14:00:00Z' })
-      )
+      listingCutoff(since, state({ listedThrough: '2026-10-19T14:00:00Z' }))
     ).toBe(since);
   });
 
   it('starts an hour before the last listing when that came before the cutoff', () => {
     expect(
+      listingCutoff(since, state({ listedThrough: '2026-08-01T10:00:00Z' }))
+    ).toBe('2026-08-01T09:00:00.000Z');
+    // Older states fall back to the full-listing time, even when an old
+    // --since run stamped a later lastMessagesSyncAt after listing a window.
+    expect(
       listingCutoff(
         since,
-        state({ lastMessagesSyncAt: '2026-08-01T10:00:00Z' })
+        state({ lastMessagesSyncAt: '2026-10-19T14:00:00Z' })
       )
-    ).toBe('2026-08-01T09:00:00.000Z');
-    // Older states may only have the full-listing time.
-    expect(listingCutoff(since, state({}))).toBe('2026-08-31T23:00:00.000Z');
+    ).toBe('2026-08-31T23:00:00.000Z');
+  });
+});
+
+describe('pendingReactions', () => {
+  const message = toStoredMessage(
+    MSG_REPLY_WITH_REACTION,
+    'AAAAgeneral',
+    'run1',
+    '2026-09-01T00:00:00.000Z'
+  );
+
+  it('lists messages with reactions and no successful fetch, up to the cap', () => {
+    expect(pendingReactions([message])).toEqual([message.name]);
+    expect(
+      pendingReactions([{ ...message, reactionsFetchedRun: 'run1' }])
+    ).toEqual([]);
+    expect(
+      pendingReactions([{ ...message, reactionFetchAttempts: 2 }])
+    ).toEqual([message.name]);
+    // A fetch that keeps failing stops blocking skips after three tries.
+    expect(
+      pendingReactions([{ ...message, reactionFetchAttempts: 3 }])
+    ).toEqual([]);
+    expect(pendingReactions([{ ...message, isDeleted: true }])).toEqual([]);
   });
 });

@@ -138,6 +138,8 @@ function fromDirectory(
       new Set([...(existing?.sources ?? []), ...ref.sources, 'directory'])
     ),
     firstSeenRun: existing?.firstSeenRun ?? options.runId,
+    // Re-resolving someone must not undo a merge of their duplicate records.
+    aliasOf: existing?.aliasOf,
     lastResolvedAt: options.now,
     lastResolvedRun: options.runId,
   };
@@ -167,6 +169,8 @@ function asPlaceholder(
       new Set([...(existing?.sources ?? []), ...ref.sources])
     ),
     firstSeenRun: existing?.firstSeenRun ?? options.runId,
+    // Re-resolving someone must not undo a merge of their duplicate records.
+    aliasOf: existing?.aliasOf,
     lastResolvedAt: options.now,
     lastResolvedRun: options.runId,
     error,

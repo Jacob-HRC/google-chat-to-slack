@@ -211,6 +211,34 @@ describe('resolveChatUsers', () => {
     expect(second['users/boom'].status).toBe('active');
   });
 
+  it('keeps the link to a merged duplicate when re-resolving someone', async () => {
+    const stored = {
+      'users/boom': {
+        chatUserId: 'users/boom',
+        status: 'unknown',
+        isPlaceholder: true,
+        sources: ['sender'],
+        firstSeenRun: 'run1',
+        aliasOf: 'users/100000000000000000001',
+      } as StoredUser,
+    };
+    const failed = await resolveChatUsers(
+      refs(['users/boom', {}]),
+      stored,
+      lookup,
+      options
+    );
+    expect(failed['users/boom'].aliasOf).toBe('users/100000000000000000001');
+    const found = await resolveChatUsers(
+      refs(['users/boom', {}]),
+      stored,
+      (): Promise<DomainUser> =>
+        Promise.resolve(directory['100000000000000000001']),
+      { ...options, refresh: true }
+    );
+    expect(found['users/boom'].aliasOf).toBe('users/100000000000000000001');
+  });
+
   it('reuses previously resolved users unless refresh is requested', async () => {
     let calls = 0;
     const counting = (id: string): Promise<DomainUser | undefined> => {

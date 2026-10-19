@@ -27,8 +27,8 @@ Not the problem: Chat API calls (`--since` already filters server-side with
    default on; `--no-skip-inactive` to turn off). Skip when the store already
    has the conversation complete, Google's `lastActiveTime` (from this run's
    listing) is before the cutoff, and `membershipCount` is unchanged. The
-   space record still gets the fresh listing (readers, raw) saved; no API
-   calls, no message rewrite. Checked on real data: of 362 conversations with
+   space record still gets the fresh listing (readers, raw) saved, with no
+   message listing or rewrite (named Spaces later also refresh members). Checked on real data: of 362 conversations with
    messages after the cutoff, all had `lastActiveTime` after it, or got their
    messages after the listing was taken.
 3. **Relative `--since`**: `30d`, `2w`, `12h` as well as RFC 3339, so a
@@ -162,3 +162,62 @@ Review round 6 (2026-10-19). Nothing at medium or above. One low note
 fixed: a conversation whose previous state was `complete` is marked
 `messages-synced` (keeping its previous sync times) before the first write,
 so a crash between writes triggers the part-way repair next run.
+
+Codex (GPT-6.1 Sol) round 1 (2026-10-19): request changes, three findings,
+each reproduced against the exporter. Fixed:
+- P1: `lastMessagesSyncAt` (and `lastFullListingAt`) was stamped after the
+  listing and save, so a stall over an hour could claim coverage the listing
+  never had. Now the listing's start time (`listedAt`).
+- P1: a failed reaction fetch left the conversation complete, and later
+  deltas skipped it; reactions outside the window were never retried.
+  `state.reactionsPending` (from `pendingReactions`) blocks the skip, and
+  `reactionsToFetch` always includes stored pending reactions. Older states
+  without the field are counted once from their messages (9 s over the whole
+  store; it currently has none pending) and the count saved.
+- P2: refreshed members were saved before the conversation was marked
+  part-way, so a crash could leave them behind a complete state and later
+  skips never resolved them. `markPartWay` now runs before the space is
+  saved (replacing the later marker), and skipped spaces resolve any stored
+  member missing from users.json.
+
+Full Claude re-review after Codex (two reviewers, 2026-10-19). No data-loss
+path in the fixes. Fixed:
+- Coverage moved to a new `listedThrough` field: old-code `--since` runs
+  stamped `lastMessagesSyncAt` after listing only a window, so trusting it
+  could hide a hole between a conversation's last full listing and that
+  cutoff. Older states fall back to `lastFullListingAt`. Checked on the real
+  store: no conversation is in that position today.
+- Reaction fetches capped at three failures (`reactionFetchAttempts`), so a
+  permanently failing fetch can't block skips and force rewrites forever;
+  new content earns fresh attempts.
+- The space record is saved before the state turns complete, so a crash
+  can't leave a DM's derived name stale behind a skip.
+- Tests: write order proved at the first `saveSpace`; an older state with
+  unfetched reactions isn't skipped; a skipped DM resolves members missing
+  from users.json; the reaction retry cap.
+- Docs: run-flow order, skip description, coverage field.
+Checked: every Google-listed conversation in the store has `lastActiveTime`,
+so a missing one costs nothing in practice.
+
+Post-Codex Claude round 2 (2026-10-19): nothing at medium or above. Fixed
+the low items:
+- Skipped conversations no longer retried failed user lookups (13 users are
+  `unknown` in the store). `retryUnresolvedUsers` retries them once per run
+  after the spaces and keeps only a directory match (a stored record can't
+  tell deleted from external).
+- `users.json` is saved only when a referenced person changed.
+- Docs: the reaction retry cap is permanent until content changes; the
+  `--refresh-users` help says it needs `--no-skip-inactive` to reach
+  skipped conversations.
+
+Post-Codex Claude round 3 (2026-10-19): nothing at medium or above. Fixed:
+users.json saving is driven by `usersDirty`, cleared only after a save
+succeeds, so a failed save (full disk) is retried by the next conversation
+or the end-of-run retry instead of being forgotten. The retry keeps a
+hand-made `aliasOf` when it takes a directory match.
+
+Post-Codex Claude round 4 (2026-10-19): nothing at medium or above in the
+diff. One pre-existing low finding fixed: `fromDirectory`/`asPlaceholder`
+(user-resolver.ts) dropped `aliasOf` on re-resolution, so a `--refresh-users`
+run or a retried `unknown` lookup could undo a recover-names merge. Both now
+keep it. Real store: 11 aliased records, all `deleted`, so not hit today.

@@ -53,6 +53,7 @@ import {
   loadSpace,
   loadState,
   loadUsers,
+  MAX_REACTION_FETCH_ATTEMPTS,
   type MergeResult,
   maxCreateTime,
   mergeMessages,
@@ -187,7 +188,7 @@ export function listingCutoff(
   if (!(since && state?.lastFullListingAt)) {
     return;
   }
-  const last = state.lastMessagesSyncAt ?? state.lastFullListingAt;
+  const last = state.listedThrough ?? state.lastFullListingAt;
   const covered = new Date(Date.parse(last) - LISTING_OVERLAP_MS).toISOString();
   return compareTimestamps(covered, since) < 0 ? covered : since;
 }
@@ -204,6 +205,7 @@ export function isInactiveSince(input: {
   state: SpaceSyncState | undefined;
   since: string;
   hasRetryableAttachments: boolean;
+  reactionsPending: number;
 }): boolean {
   const { raw, existing, state } = input;
   const cutoff = listingCutoff(input.since, state);
@@ -213,7 +215,8 @@ export function isInactiveSince(input: {
     existing.memberships.length === 0 ||
     state?.status !== 'complete' ||
     !cutoff ||
-    input.hasRetryableAttachments
+    input.hasRetryableAttachments ||
+    input.reactionsPending > 0
   ) {
     return false;
   }
@@ -354,6 +357,8 @@ interface RunContext {
   attachmentIndex: Record<string, AttachmentRecord>;
   /** Spaces holding a download still worth retrying, as of the run's start. */
   retryableSpaces: Set<string>;
+  /** users.json is behind memory (cleared only by a successful save). */
+  usersDirty: boolean;
 }
 
 function now(): string {
@@ -397,7 +402,12 @@ function emptySpaceResult(
 function initialReport(
   ctx: Omit<
     RunContext,
-    'report' | 'users' | 'attachmentIndex' | 'subjectEmails' | 'retryableSpaces'
+    | 'report'
+    | 'users'
+    | 'attachmentIndex'
+    | 'subjectEmails'
+    | 'retryableSpaces'
+    | 'usersDirty'
   >
 ): RunReport {
   return {
@@ -582,14 +592,62 @@ async function resolveUsersFor(
 ): Promise<void> {
   const refs = new Map<string, ChatUserRef>();
   collectUserRefs(refs, space, messages);
+  const before = ctx.users;
   ctx.users = await resolveChatUsers(refs, ctx.users, getDomainUser, {
     runId: ctx.runId,
     now: now(),
     refresh: ctx.options.refreshUsers,
   });
-  if (!ctx.options.dryRun) {
-    await saveUsers(ctx.store, ctx.users);
+  // users.json is rewritten only when a referenced person changed, or an
+  // earlier save in this run failed.
+  if (
+    Array.from(refs.keys()).some(
+      (id) => JSON.stringify(before[id]) !== JSON.stringify(ctx.users[id])
+    )
+  ) {
+    ctx.usersDirty = true;
   }
+  await saveUsersIfDirty(ctx);
+}
+
+async function saveUsersIfDirty(ctx: RunContext): Promise<void> {
+  if (ctx.usersDirty && !ctx.options.dryRun) {
+    await saveUsers(ctx.store, ctx.users);
+    ctx.usersDirty = false;
+  }
+}
+
+/**
+ * Retries people whose earlier lookup failed (`unknown`) and whom no synced
+ * conversation reached this run, since skipped conversations no longer do.
+ * Only a directory match is kept: a stored record lacks the membership
+ * affiliation that tells deleted from external, so anything else waits for
+ * a conversation of theirs to be synced.
+ */
+async function retryUnresolvedUsers(ctx: RunContext): Promise<void> {
+  const refs = new Map<string, ChatUserRef>();
+  for (const user of Object.values(ctx.users)) {
+    if (user.status === 'unknown' && user.lastResolvedRun !== ctx.runId) {
+      addUserRef(refs, user.chatUserId, user.sources[0] ?? 'membership');
+    }
+  }
+  if (refs.size === 0) {
+    await saveUsersIfDirty(ctx);
+    return;
+  }
+  const looked = await resolveChatUsers(refs, ctx.users, getDomainUser, {
+    runId: ctx.runId,
+    now: now(),
+  });
+  for (const id of refs.keys()) {
+    const user = looked[id];
+    if (user && !user.isPlaceholder) {
+      // A directory record is built fresh; keep a hand-made alias link.
+      ctx.users[id] = { ...user, aliasOf: ctx.users[id]?.aliasOf };
+      ctx.usersDirty = true;
+    }
+  }
+  await saveUsersIfDirty(ctx);
 }
 
 async function fetchReactions(
@@ -611,10 +669,12 @@ async function fetchReactions(
       const reactions = await listReactionsAs(readerSubject, name);
       message.reactions = reactions.map(toStoredReaction);
       message.reactionsFetchedRun = ctx.runId;
+      message.reactionFetchAttempts = undefined;
       return reactions.length;
     } catch (error) {
-      // Unset, so the next listing of this message retries the fetch.
+      // Unset, so a later run retries the fetch (up to the cap).
       message.reactionsFetchedRun = undefined;
+      message.reactionFetchAttempts = (message.reactionFetchAttempts ?? 0) + 1;
       ctx.logger.addWarning('reaction_list', name, describeGoogleError(error));
       return 0;
     }
@@ -781,8 +841,12 @@ async function skipInactiveSpace(
     runId: ctx.runId,
     now: now(),
   });
-  if (memberships) {
-    // New members must be in users.json, or the archive drops them.
+  // Members must be in users.json, or the archive drops them: refreshed
+  // ones, and any an interrupted run stored without resolving.
+  const unresolved = space.memberships.some(
+    (m) => m.memberType === 'HUMAN' && m.chatUserId && !ctx.users[m.chatUserId]
+  );
+  if (memberships || unresolved) {
     await resolveUsersFor(ctx, space, []);
   }
   if (space.spaceType === 'SPACE') {
@@ -831,43 +895,92 @@ async function indexAndSaveMessages(
  * part-way, every stored message with reactions not yet fetched: they may lie
  * outside this run's listing window and would otherwise never be fetched.
  */
-function reactionsToFetch(
-  merge: MergeResult,
-  previousState: SpaceSyncState | undefined
-): string[] {
-  if (previousState?.status === 'complete') {
-    return merge.diff.reactionRefresh;
-  }
-  const pending = merge.messages
+function reactionsToFetch(merge: MergeResult): string[] {
+  return Array.from(
+    new Set([
+      ...merge.diff.reactionRefresh,
+      ...pendingReactions(merge.messages),
+    ])
+  );
+}
+
+/**
+ * Messages with reactions but no successful fetch: a fetch failed or the run
+ * stopped before it. Retried whatever the listing window. Pure.
+ */
+export function pendingReactions(messages: StoredMessage[]): string[] {
+  return messages
     .filter(
       (m) =>
         ((m.raw.emojiReactionSummaries?.length ?? 0) > 0 ||
           m.reactions.length > 0) &&
         m.reactionsFetchedRun === undefined &&
+        (m.reactionFetchAttempts ?? 0) < MAX_REACTION_FETCH_ATTEMPTS &&
         !m.isDeleted
     )
     .map((m) => m.name);
-  return Array.from(new Set([...merge.diff.reactionRefresh, ...pending]));
 }
 
-function canSkipInactive(
+/**
+ * How many messages of a stored conversation still need reactions. States
+ * from before this was tracked are counted from the stored messages once,
+ * and the count saved.
+ */
+async function storedReactionsPending(
+  ctx: RunContext,
+  spaceId: string,
+  state: SpaceSyncState | undefined
+): Promise<number> {
+  if (!state || state.reactionsPending !== undefined) {
+    return state?.reactionsPending ?? 0;
+  }
+  const count = pendingReactions(await loadMessages(ctx.store, spaceId)).length;
+  if (!ctx.options.dryRun) {
+    await saveState(ctx.store, { ...state, reactionsPending: count });
+  }
+  return count;
+}
+
+/**
+ * Marks a complete conversation part-way (keeping its sync times) before this
+ * run writes anything for it, so a crash between writes can't leave refreshed
+ * members or messages behind a 'complete' state that later runs would skip.
+ */
+async function markPartWay(
+  ctx: RunContext,
+  previousState: SpaceSyncState | undefined
+): Promise<void> {
+  if (previousState?.status === 'complete') {
+    await saveState(ctx.store, {
+      ...previousState,
+      status: 'messages-synced',
+      lastRunId: ctx.runId,
+    });
+  }
+}
+
+async function canSkipInactive(
   ctx: RunContext,
   discovered: DiscoveredSpace,
   existing: StoredSpace | undefined,
   state: SpaceSyncState | undefined
-): boolean {
+): Promise<boolean> {
   const { since, skipInactive } = ctx.options;
-  return Boolean(
-    since &&
-      skipInactive &&
-      isInactiveSince({
-        raw: discovered.raw,
-        existing,
-        state,
-        since,
-        hasRetryableAttachments: ctx.retryableSpaces.has(discovered.spaceId),
-      })
-  );
+  if (!(since && skipInactive && state?.status === 'complete')) {
+    return false;
+  }
+  return isInactiveSince({
+    raw: discovered.raw,
+    existing,
+    state,
+    since,
+    hasRetryableAttachments: ctx.retryableSpaces.has(discovered.spaceId),
+    reactionsPending: await storedReactionsPending(
+      ctx,
+      discovered.spaceId,
+      state
+    ),
+  });
 }
 
 async function syncSpace(
@@ -897,7 +1010,7 @@ async function syncSpace(
 
   // Applies on resume too, or a resumed delta would list whole histories.
   const since = options.since;
-  if (canSkipInactive(ctx, discovered, existingSpace, previousState)) {
+  if (await canSkipInactive(ctx, discovered, existingSpace, previousState)) {
     await skipInactiveSpace(ctx, discovered, existingSpace, result);
     result.messages.total = previousState?.messageCount ?? 0;
     result.durationMs = Date.now() - started;
@@ -930,6 +1043,7 @@ async function syncSpace(
     (m) => m.memberType !== 'BOT'
   ).length;
   if (!options.dryRun) {
+    await markPartWay(ctx, previousState);
     await saveSpace(store, space);
   }
 
@@ -938,6 +1052,9 @@ async function syncSpace(
   // A conversation never listed in full gets its whole history, or a `since`
   // run would store only the window and later skip it as inactive.
   const listSince = listingCutoff(since, previousState);
+  // Coverage runs to when the listing started; anything later is the next
+  // run's, however long this one takes.
+  const listedAt = now();
   const fetched = await listMessagesAs(readerSubject, space.name, {
     since: listSince,
     limit: options.messageLimit,
@@ -980,15 +1097,6 @@ async function syncSpace(
     return result;
   }
 
-  if (previousState?.status === 'complete' && merge.diff.changed) {
-    // Marked part-way before the first write, so a crash between the writes
-    // triggers the re-index and reaction repair next run.
-    await saveState(store, {
-      ...previousState,
-      status: 'messages-synced',
-      lastRunId: ctx.runId,
-    });
-  }
   await indexAndSaveMessages(ctx, spaceId, merge, previousState);
   const state: SpaceSyncState = {
     spaceId,
@@ -997,11 +1105,16 @@ async function syncSpace(
     // A capped listing (test hook) covers only part of the window.
     lastMessagesSyncAt: options.messageLimit
       ? previousState?.lastMessagesSyncAt
-      : now(),
+      : listedAt,
     lastFullListingAt:
       listSince || options.messageLimit
         ? previousState?.lastFullListingAt
-        : now(),
+        : listedAt,
+    // The listing started at or before the previous coverage (listingCutoff),
+    // so everything up to its start is now stored.
+    listedThrough: options.messageLimit
+      ? previousState?.listedThrough
+      : listedAt,
     messageCount: merge.messages.length,
     deletedCount: merge.messages.filter((m) => m.isDeleted).length,
     missingCount: merge.messages.filter((m) => m.missingSince).length,
@@ -1011,7 +1124,7 @@ async function syncSpace(
   await saveState(store, state);
 
   // Reactions, people, attachments
-  const reactionNames = reactionsToFetch(merge, previousState);
+  const reactionNames = reactionsToFetch(merge);
   result.reactions.fetched = await fetchReactions(
     ctx,
     readerSubject,
@@ -1026,11 +1139,13 @@ async function syncSpace(
     await syncSpaceAttachments(ctx, space, result);
   }
 
-  state.status = 'complete';
-  state.attachmentsPending = pendingAttachmentKeys(ctx, spaceId).length;
-  await saveState(store, state);
+  // The space record first: a skip never recomputes a DM's derived name.
   space.derivedDisplayName = deriveSpaceName(space, ctx.users, merge.messages);
   await saveSpace(store, space);
+  state.status = 'complete';
+  state.attachmentsPending = pendingAttachmentKeys(ctx, spaceId).length;
+  state.reactionsPending = pendingReactions(merge.messages).length;
+  await saveState(store, state);
 
   result.durationMs = Date.now() - started;
   console.log(formatSpaceLine(space, result));
@@ -1057,6 +1172,8 @@ async function syncSpaceSafely(
         lastRunId: ctx.runId,
         lastMessagesSyncAt: previous?.lastMessagesSyncAt,
         lastFullListingAt: previous?.lastFullListingAt,
+        listedThrough: previous?.listedThrough,
+        reactionsPending: previous?.reactionsPending,
         messageCount: previous?.messageCount ?? 0,
         deletedCount: previous?.deletedCount ?? 0,
         missingCount: previous?.missingCount ?? 0,
@@ -1192,6 +1309,7 @@ export async function exportWorkspace(
     users: {},
     attachmentIndex: {},
     retryableSpaces: new Set(),
+    usersDirty: false,
   };
 
   console.log(
@@ -1239,6 +1357,7 @@ export async function exportWorkspace(
       // biome-ignore lint/nursery/noAwaitInLoop: spaces are synced one at a time so a crash leaves at most one space partial.
       ctx.report.spaces.push(await syncSpaceSafely(ctx, target));
     }
+    await retryUnresolvedUsers(ctx);
 
     computeTotals(ctx);
     ctx.report.status = options.dryRun ? 'dry-run' : 'completed';

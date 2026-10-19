@@ -21,18 +21,25 @@ import {
   messagesPath,
   spaceDir,
   statePath,
+  usersPath,
 } from '../../services/export-store';
 import {
   exportWorkspace,
   type WorkspaceExportOptions,
 } from '../../services/workspace-export';
 import {
+  MEMBERSHIPS_DM,
   MEMBERSHIPS_GENERAL,
   MSG_PLAIN,
   MSG_REPLY_WITH_REACTION,
   MSG_WITH_ATTACHMENTS,
+  SPACE_DM,
   SPACE_GENERAL,
+  USER_FORMER,
 } from '../fixtures/chat-api';
+
+/** The state each saveSpace call found on disk, to check write order. */
+const spaceSaves = vi.hoisted(() => ({ statuses: [] as string[] }));
 
 vi.mock('../../services/chat-reader', () => ({
   listSpacesAs: vi.fn(),
@@ -41,6 +48,21 @@ vi.mock('../../services/chat-reader', () => ({
   listReactionsAs: vi.fn(),
   searchNamedSpacesAsAdmin: vi.fn(),
 }));
+vi.mock('../../services/export-store', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../../services/export-store')>();
+  return {
+    ...actual,
+    saveSpace: async (
+      store: Parameters<typeof actual.saveSpace>[0],
+      space: Parameters<typeof actual.saveSpace>[1]
+    ): Promise<void> => {
+      const state = await actual.loadState(store, space.spaceId);
+      spaceSaves.statuses.push(state?.status ?? 'none');
+      await actual.saveSpace(store, space);
+    },
+  };
+});
 vi.mock('../../services/directory', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   listDomainUsers: vi.fn(),
@@ -257,7 +279,7 @@ describe('exportWorkspace deltas', () => {
   }
 
   it('lists from the last listing when that was before the cutoff', async () => {
-    await patchState({ lastMessagesSyncAt: '2026-08-01T10:00:00.000Z' });
+    await patchState({ listedThrough: '2026-08-01T10:00:00.000Z' });
     // Activity after our last listing but before the cutoff is not skipped.
     listing({ ...SPACE_GENERAL, lastActiveTime: '2026-08-15T09:00:00Z' });
     chat.listMessagesAs.mockResolvedValue([]);
@@ -366,5 +388,151 @@ describe('exportWorkspace deltas', () => {
       'pastor@example.com',
       MSG_REPLY_WITH_REACTION.name
     );
+  });
+
+  it('records coverage from when the listing started, however long the run takes', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-10-20T10:00:00.000Z'));
+      chat.listMessagesAs.mockImplementation(() => {
+        // The listing returns, then the process stalls for two hours.
+        vi.setSystemTime(new Date('2026-10-20T12:00:00.000Z'));
+        return Promise.resolve([MSG_PLAIN]);
+      });
+      await exportWorkspace(options());
+    } finally {
+      vi.useRealTimers();
+    }
+    const state = await readJson<{
+      lastMessagesSyncAt: string;
+      listedThrough: string;
+    }>(statePath(root, 'AAAAgeneral'));
+    expect(state.lastMessagesSyncAt).toBe('2026-10-20T10:00:00.000Z');
+    expect(state.listedThrough).toBe('2026-10-20T10:00:00.000Z');
+  });
+
+  it('retries failed reaction fetches before the conversation can be skipped', async () => {
+    chat.listMessagesAs.mockResolvedValue([MSG_PLAIN, MSG_REPLY_WITH_REACTION]);
+    chat.listReactionsAs.mockRejectedValue(new Error('backend error'));
+    await exportWorkspace(options());
+    let state = await readJson<{ reactionsPending: number }>(
+      statePath(root, 'AAAAgeneral')
+    );
+    expect(state.reactionsPending).toBe(1);
+
+    // Quiet since the cutoff, and the message is outside the window: still
+    // visited, and the reaction fetched.
+    chat.listReactionsAs.mockReset();
+    chat.listReactionsAs.mockResolvedValue([]);
+    chat.listMessagesAs.mockResolvedValue([]);
+    const retry = await exportWorkspace(options({ since: SINCE }));
+    expect(retry.totals.spacesSkipped).toBe(0);
+    expect(chat.listReactionsAs).toHaveBeenCalledWith(
+      'pastor@example.com',
+      MSG_REPLY_WITH_REACTION.name
+    );
+    state = await readJson(statePath(root, 'AAAAgeneral'));
+    expect(state.reactionsPending).toBe(0);
+
+    const next = await exportWorkspace(options({ since: SINCE }));
+    expect(next.totals.spacesSkipped).toBe(1);
+  });
+
+  it('counts pending reactions once for states written before they were tracked', async () => {
+    await patchState({ reactionsPending: undefined });
+    const report = await exportWorkspace(options({ since: SINCE }));
+    expect(report.totals.spacesSkipped).toBe(1);
+    const state = await readJson<{ reactionsPending: number }>(
+      statePath(root, 'AAAAgeneral')
+    );
+    expect(state.reactionsPending).toBe(0);
+  });
+
+  it('does not skip an older state whose messages hold unfetched reactions', async () => {
+    chat.listMessagesAs.mockResolvedValue([MSG_PLAIN, MSG_REPLY_WITH_REACTION]);
+    await exportWorkspace(options());
+    const file = messagesPath(root, 'AAAAgeneral');
+    const stored = await readJson<Record<string, unknown>[]>(file);
+    await writeFile(
+      file,
+      JSON.stringify(
+        stored.map((m) => ({ ...m, reactionsFetchedRun: undefined }))
+      )
+    );
+    await patchState({ reactionsPending: undefined });
+    chat.listReactionsAs.mockClear();
+    chat.listMessagesAs.mockResolvedValue([]);
+    const report = await exportWorkspace(options({ since: SINCE }));
+    expect(report.totals.spacesSkipped).toBe(0);
+    expect(chat.listReactionsAs).toHaveBeenCalledWith(
+      'pastor@example.com',
+      MSG_REPLY_WITH_REACTION.name
+    );
+  });
+
+  it('resolves stored members missing from users.json even when skipping', async () => {
+    const dm = {
+      ...SPACE_DM,
+      lastActiveTime: '2025-02-01T09:00:00Z',
+      membershipCount: { joinedDirectHumanUserCount: 2 },
+    };
+    listing(dm);
+    chat.listMembershipsAs.mockResolvedValue(MEMBERSHIPS_DM);
+    chat.listMessagesAs.mockResolvedValue([]);
+    await exportWorkspace(options());
+    // Lost, as if a crash came between saving members and resolving them.
+    const users = await readJson<Record<string, unknown>>(usersPath(root));
+    delete users[USER_FORMER];
+    await writeFile(usersPath(root), JSON.stringify(users));
+
+    chat.listMembershipsAs.mockClear();
+    const report = await exportWorkspace(options({ since: SINCE }));
+    expect(report.totals.spacesSkipped).toBe(1);
+    expect(chat.listMembershipsAs).not.toHaveBeenCalled();
+    const after = await readJson<Record<string, unknown>>(usersPath(root));
+    expect(after[USER_FORMER]).toBeDefined();
+  });
+
+  it('marks a conversation part-way before writing anything for it', async () => {
+    spaceSaves.statuses.length = 0;
+    chat.listMessagesAs.mockResolvedValue([MSG_PLAIN]);
+    await exportWorkspace(options());
+    // The first write (refreshed members) must not sit behind a complete
+    // state, or a crash right after it would be skipped for good.
+    expect(spaceSaves.statuses[0]).toBe('messages-synced');
+  });
+
+  it('retries a failed lookup once per run, keeping only a directory match', async () => {
+    const users = await readJson<Record<string, Record<string, unknown>>>(
+      usersPath(root)
+    );
+    users[USER_FORMER] = {
+      chatUserId: USER_FORMER,
+      status: 'unknown',
+      isPlaceholder: true,
+      sources: ['sender'],
+      firstSeenRun: 'run0',
+      error: 'backend error',
+    };
+    await writeFile(usersPath(root), JSON.stringify(users));
+    // Not found: stays unknown (it might be external, which only a
+    // conversation's membership can tell).
+    await exportWorkspace(options({ since: SINCE }));
+    let after = await readJson<Record<string, { status: string }>>(
+      usersPath(root)
+    );
+    expect(after[USER_FORMER].status).toBe('unknown');
+
+    dir.getDomainUser.mockResolvedValue({
+      id: '100000000000000000003',
+      email: 'former@example.com',
+      fullName: 'Fran Former',
+      suspended: false,
+      archived: false,
+      orgUnitPath: '/',
+    });
+    await exportWorkspace(options({ since: SINCE }));
+    after = await readJson(usersPath(root));
+    expect(after[USER_FORMER].status).not.toBe('unknown');
   });
 });

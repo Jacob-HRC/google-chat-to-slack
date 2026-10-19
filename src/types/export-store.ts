@@ -180,6 +180,8 @@ export interface StoredMessage {
   links: ExtractedLink[];
   reactions: StoredReaction[];
   reactionsFetchedRun?: string;
+  /** Failed reaction fetches since the last success; capped like downloads. */
+  reactionFetchAttempts?: number;
   attachmentKeys: string[];
   isDeleted: boolean;
   deletion?: { deleteTime?: string; deletionType?: string };
@@ -211,11 +213,23 @@ export interface SpaceSyncState {
   lastRunId: string;
   lastMessagesSyncAt?: string;
   lastFullListingAt?: string;
+  /**
+   * Every message created before this is stored: the start of the last
+   * listing that reached back to the previous coverage. Older states lack it;
+   * their `lastMessagesSyncAt` can't be trusted for this (old `--since` runs
+   * stamped it after listing only a window), so `lastFullListingAt` stands in.
+   */
+  listedThrough?: string;
   messageCount: number;
   deletedCount: number;
   missingCount: number;
   maxCreateTime?: string;
   attachmentsPending: number;
+  /**
+   * Messages whose reactions still need fetching (a fetch failed or was cut
+   * off). Unset in states written before this was tracked.
+   */
+  reactionsPending?: number;
   error?: string;
 }
 
