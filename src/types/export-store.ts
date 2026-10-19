@@ -180,8 +180,10 @@ export interface StoredMessage {
   links: ExtractedLink[];
   reactions: StoredReaction[];
   reactionsFetchedRun?: string;
-  /** Failed reaction fetches since the last success; capped like downloads. */
+  /** Failed reaction fetches since the last success. */
   reactionFetchAttempts?: number;
+  /** After a failed fetch, when the next attempt is due (backing off). */
+  reactionRetryAfter?: string;
   attachmentKeys: string[];
   isDeleted: boolean;
   deletion?: { deleteTime?: string; deletionType?: string };
@@ -230,6 +232,8 @@ export interface SpaceSyncState {
    * off). Unset in states written before this was tracked.
    */
   reactionsPending?: number;
+  /** When the earliest pending reaction fetch is due (now, if not backing off). */
+  reactionsDueAt?: string;
   error?: string;
 }
 

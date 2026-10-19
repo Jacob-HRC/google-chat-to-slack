@@ -309,6 +309,32 @@ describe('mergeMessages', () => {
     expect(second.messages[0].reactionsFetchedRun).toBeUndefined();
   });
 
+  it('waits out a failed reaction fetch, then retries it', () => {
+    const first = mergeMessages(
+      [],
+      [MSG_REPLY_WITH_REACTION],
+      'AAAAgeneral',
+      RUN_1
+    );
+    first.messages[0].reactionFetchAttempts = 5;
+    first.messages[0].reactionRetryAfter = '2026-10-20T00:00:00.000Z';
+    const early = mergeMessages(
+      first.messages,
+      [MSG_REPLY_WITH_REACTION],
+      'AAAAgeneral',
+      { ...RUN_2, now: '2026-10-19T00:00:00.000Z' }
+    );
+    expect(early.diff.reactionRefresh).toEqual([]);
+    expect(early.diff.changed).toBe(false);
+    const due = mergeMessages(
+      first.messages,
+      [MSG_REPLY_WITH_REACTION],
+      'AAAAgeneral',
+      { ...RUN_2, now: '2026-10-21T00:00:00.000Z' }
+    );
+    expect(due.diff.reactionRefresh).toEqual([MSG_REPLY_WITH_REACTION.name]);
+  });
+
   it('never refetches reactions of a deleted message', () => {
     const first = mergeMessages(
       [],

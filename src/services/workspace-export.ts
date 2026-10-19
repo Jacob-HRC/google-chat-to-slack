@@ -11,6 +11,7 @@
 import type { chat_v1 } from 'googleapis';
 import type {
   AttachmentRecord,
+  RunPointer,
   RunReport,
   SpaceRunResult,
   SpaceSyncState,
@@ -53,12 +54,13 @@ import {
   loadSpace,
   loadState,
   loadUsers,
-  MAX_REACTION_FETCH_ATTEMPTS,
   type MergeResult,
   maxCreateTime,
   mergeMessages,
   mergeSpace,
   openStore,
+  reactionRetryDelayMs,
+  reactionRetryDue,
   recordRunPointer,
   saveAttachmentIndex,
   saveDiscoveredSpaces,
@@ -183,14 +185,43 @@ const LISTING_OVERLAP_MS = 60 * 60 * 1000;
  */
 export function listingCutoff(
   since: string | undefined,
-  state: SpaceSyncState | undefined
+  state: SpaceSyncState | undefined,
+  runs: RunPointer[]
 ): string | undefined {
   if (!(since && state?.lastFullListingAt)) {
     return;
   }
-  const last = state.listedThrough ?? state.lastFullListingAt;
+  const last =
+    state.listedThrough ?? legacyCoverage(state.lastFullListingAt, runs);
+  if (!last) {
+    return;
+  }
   const covered = new Date(Date.parse(last) - LISTING_OVERLAP_MS).toISOString();
   return compareTimestamps(covered, since) < 0 ? covered : since;
+}
+
+/**
+ * Coverage for a state from before `listedThrough`. Old code stamped
+ * `lastFullListingAt` after listing and saving, so the stamp can be later
+ * than what the listing saw. The listing ran inside some run that started
+ * before the stamp, so the start of the latest run that began no later than
+ * it is a safe bound. Undefined (list in full) when no such run is known.
+ * Pure.
+ */
+export function legacyCoverage(
+  lastFullListingAt: string,
+  runs: RunPointer[]
+): string | undefined {
+  let best: string | undefined;
+  for (const run of runs) {
+    if (
+      compareTimestamps(run.startedAt, lastFullListingAt) <= 0 &&
+      (!best || compareTimestamps(run.startedAt, best) > 0)
+    ) {
+      best = run.startedAt;
+    }
+  }
+  return best;
 }
 
 /**
@@ -205,10 +236,17 @@ export function isInactiveSince(input: {
   state: SpaceSyncState | undefined;
   since: string;
   hasRetryableAttachments: boolean;
-  reactionsPending: number;
+  reactions: PendingReactions;
+  /** Recorded runs, to bound coverage for states from before listedThrough. */
+  runs: RunPointer[];
+  now: string;
 }): boolean {
-  const { raw, existing, state } = input;
-  const cutoff = listingCutoff(input.since, state);
+  const { raw, existing, state, reactions } = input;
+  const cutoff = listingCutoff(input.since, state, input.runs);
+  // A reaction fetch that is backing off doesn't hold the skip until due.
+  const reactionsDue =
+    reactions.pending > 0 &&
+    (!reactions.dueAt || compareTimestamps(reactions.dueAt, input.now) <= 0);
   if (
     !existing ||
     existing.source === 'vault' ||
@@ -216,7 +254,7 @@ export function isInactiveSince(input: {
     state?.status !== 'complete' ||
     !cutoff ||
     input.hasRetryableAttachments ||
-    input.reactionsPending > 0
+    reactionsDue
   ) {
     return false;
   }
@@ -670,11 +708,17 @@ async function fetchReactions(
       message.reactions = reactions.map(toStoredReaction);
       message.reactionsFetchedRun = ctx.runId;
       message.reactionFetchAttempts = undefined;
+      message.reactionRetryAfter = undefined;
       return reactions.length;
     } catch (error) {
-      // Unset, so a later run retries the fetch (up to the cap).
+      // Unset, so a later run retries the fetch, backing off but never
+      // giving up: the reactions exist in Google.
+      const attempts = (message.reactionFetchAttempts ?? 0) + 1;
       message.reactionsFetchedRun = undefined;
-      message.reactionFetchAttempts = (message.reactionFetchAttempts ?? 0) + 1;
+      message.reactionFetchAttempts = attempts;
+      message.reactionRetryAfter = new Date(
+        Date.now() + reactionRetryDelayMs(attempts)
+      ).toISOString();
       ctx.logger.addWarning('reaction_list', name, describeGoogleError(error));
       return 0;
     }
@@ -895,12 +939,19 @@ async function indexAndSaveMessages(
  * part-way, every stored message with reactions not yet fetched: they may lie
  * outside this run's listing window and would otherwise never be fetched.
  */
-function reactionsToFetch(merge: MergeResult): string[] {
-  return Array.from(
-    new Set([
-      ...merge.diff.reactionRefresh,
-      ...pendingReactions(merge.messages),
-    ])
+function reactionsToFetch(merge: MergeResult, at: string): string[] {
+  const due = merge.messages
+    .filter((m) => isPendingReaction(m) && reactionRetryDue(m, at))
+    .map((m) => m.name);
+  return Array.from(new Set([...merge.diff.reactionRefresh, ...due]));
+}
+
+function isPendingReaction(m: StoredMessage): boolean {
+  return (
+    ((m.raw.emojiReactionSummaries?.length ?? 0) > 0 ||
+      m.reactions.length > 0) &&
+    m.reactionsFetchedRun === undefined &&
+    !m.isDeleted
   );
 }
 
@@ -909,36 +960,57 @@ function reactionsToFetch(merge: MergeResult): string[] {
  * stopped before it. Retried whatever the listing window. Pure.
  */
 export function pendingReactions(messages: StoredMessage[]): string[] {
-  return messages
-    .filter(
-      (m) =>
-        ((m.raw.emojiReactionSummaries?.length ?? 0) > 0 ||
-          m.reactions.length > 0) &&
-        m.reactionsFetchedRun === undefined &&
-        (m.reactionFetchAttempts ?? 0) < MAX_REACTION_FETCH_ATTEMPTS &&
-        !m.isDeleted
-    )
-    .map((m) => m.name);
+  return messages.filter(isPendingReaction).map((m) => m.name);
+}
+
+export interface PendingReactions {
+  /** Messages with reactions not yet fetched. */
+  pending: number;
+  /** When the earliest of them may be retried; unset when none is pending. */
+  dueAt?: string;
+}
+
+/** Counts pending reaction fetches and when the next one is due. Pure. */
+export function summarizePendingReactions(
+  messages: StoredMessage[],
+  at: string
+): PendingReactions {
+  let pending = 0;
+  let dueAt: string | undefined;
+  for (const m of messages.filter(isPendingReaction)) {
+    pending += 1;
+    const due = m.reactionRetryAfter ?? at;
+    if (!dueAt || compareTimestamps(due, dueAt) < 0) {
+      dueAt = due;
+    }
+  }
+  return { pending, dueAt };
 }
 
 /**
- * How many messages of a stored conversation still need reactions. States
- * from before this was tracked are counted from the stored messages once,
- * and the count saved.
+ * A stored conversation's pending reaction fetches. States from before this
+ * was tracked are counted from the stored messages once, and saved.
  */
 async function storedReactionsPending(
   ctx: RunContext,
   spaceId: string,
-  state: SpaceSyncState | undefined
-): Promise<number> {
-  if (!state || state.reactionsPending !== undefined) {
-    return state?.reactionsPending ?? 0;
+  state: SpaceSyncState
+): Promise<PendingReactions> {
+  if (state.reactionsPending !== undefined) {
+    return { pending: state.reactionsPending, dueAt: state.reactionsDueAt };
   }
-  const count = pendingReactions(await loadMessages(ctx.store, spaceId)).length;
+  const summary = summarizePendingReactions(
+    await loadMessages(ctx.store, spaceId),
+    now()
+  );
   if (!ctx.options.dryRun) {
-    await saveState(ctx.store, { ...state, reactionsPending: count });
+    await saveState(ctx.store, {
+      ...state,
+      reactionsPending: summary.pending,
+      reactionsDueAt: summary.dueAt,
+    });
   }
-  return count;
+  return summary;
 }
 
 /**
@@ -959,6 +1031,14 @@ async function markPartWay(
   }
 }
 
+/**
+ * Recorded runs other than this one: no old stamp can come from it, and a
+ * clock stepped back must not make its start the bound (legacyCoverage).
+ */
+function earlierRuns(ctx: RunContext): RunPointer[] {
+  return ctx.store.manifest.runs.filter((r) => r.runId !== ctx.runId);
+}
+
 async function canSkipInactive(
   ctx: RunContext,
   discovered: DiscoveredSpace,
@@ -975,11 +1055,9 @@ async function canSkipInactive(
     state,
     since,
     hasRetryableAttachments: ctx.retryableSpaces.has(discovered.spaceId),
-    reactionsPending: await storedReactionsPending(
-      ctx,
-      discovered.spaceId,
-      state
-    ),
+    reactions: await storedReactionsPending(ctx, discovered.spaceId, state),
+    runs: earlierRuns(ctx),
+    now: now(),
   });
 }
 
@@ -1051,7 +1129,7 @@ async function syncSpace(
   const existingMessages = await loadMessages(store, spaceId);
   // A conversation never listed in full gets its whole history, or a `since`
   // run would store only the window and later skip it as inactive.
-  const listSince = listingCutoff(since, previousState);
+  const listSince = listingCutoff(since, previousState, earlierRuns(ctx));
   // Coverage runs to when the listing started; anything later is the next
   // run's, however long this one takes.
   const listedAt = now();
@@ -1124,7 +1202,7 @@ async function syncSpace(
   await saveState(store, state);
 
   // Reactions, people, attachments
-  const reactionNames = reactionsToFetch(merge);
+  const reactionNames = reactionsToFetch(merge, now());
   result.reactions.fetched = await fetchReactions(
     ctx,
     readerSubject,
@@ -1144,7 +1222,9 @@ async function syncSpace(
   await saveSpace(store, space);
   state.status = 'complete';
   state.attachmentsPending = pendingAttachmentKeys(ctx, spaceId).length;
-  state.reactionsPending = pendingReactions(merge.messages).length;
+  const reactions = summarizePendingReactions(merge.messages, now());
+  state.reactionsPending = reactions.pending;
+  state.reactionsDueAt = reactions.dueAt;
   await saveState(store, state);
 
   result.durationMs = Date.now() - started;
@@ -1174,6 +1254,7 @@ async function syncSpaceSafely(
         lastFullListingAt: previous?.lastFullListingAt,
         listedThrough: previous?.listedThrough,
         reactionsPending: previous?.reactionsPending,
+        reactionsDueAt: previous?.reactionsDueAt,
         messageCount: previous?.messageCount ?? 0,
         deletedCount: previous?.deletedCount ?? 0,
         missingCount: previous?.missingCount ?? 0,

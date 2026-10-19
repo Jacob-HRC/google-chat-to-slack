@@ -261,12 +261,16 @@ data/workspace/
    A space is left alone (`isInactiveSince`) when the store holds it
    complete, neither the listing's `lastActiveTime` nor the newest stored
    message is after its cutoff, no download is still worth retrying, no
-   reaction fetch is pending (`reactionsPending`, counted once from the
-   stored messages for older states; three failed fetches end the retries),
-   and `membershipCount` is unchanged. Coverage is `listedThrough`, the
-   start of the last listing that reached back to the previous coverage;
-   states from before it fall back to `lastFullListingAt`, because old
-   `--since` runs stamped `lastMessagesSyncAt` after listing only a window.
+   reaction fetch is due (`reactionsPending`/`reactionsDueAt`, counted once
+   from the stored messages for older states; a failing fetch backs off 1 h,
+   2 h, 4 h… up to a week, but is never given up), and `membershipCount` is
+   unchanged. Coverage is `listedThrough`, the start of the last listing
+   that reached back to the previous coverage. Older states can't be taken
+   at their word (old code stamped `lastFullListingAt` after saving, and old
+   `--since` runs stamped `lastMessagesSyncAt` after listing only a window),
+   so their coverage is the start of the latest recorded run that began no
+   later than their `lastFullListingAt` (`legacyCoverage`); none known means
+   a full listing.
    A space's last-listing time is when its listing started, so a stalled run
    can't claim coverage it doesn't have. A complete space is marked part-way
    before the run writes anything for it. Its space record is refreshed, and a named
@@ -279,9 +283,8 @@ data/workspace/
    the space is skipped. After the spaces, people still `unknown` (their
    lookup failed) are retried once; only a directory match is kept, since a
    stored record can't tell deleted from external. `users.json` is written
-   only when someone changed. A message whose reaction fetch failed three
-   times is not retried until its content changes; the run log lists each
-   failure.
+   only when someone changed. Each failed reaction fetch is listed in the
+   run log.
    `--no-skip-inactive` lists every space; `--refresh-users` then also
    reaches people referenced only in skipped spaces. The cutoff is saved on
    the run pointer, and `--resume` reuses it.

@@ -221,3 +221,26 @@ diff. One pre-existing low finding fixed: `fromDirectory`/`asPlaceholder`
 (user-resolver.ts) dropped `aliasOf` on re-resolution, so a `--refresh-users`
 run or a retried `unknown` lookup could undo a recover-names merge. Both now
 keep it. Real store: 11 aliased records, all `deleted`, so not hit today.
+
+Codex (GPT-6.1 Sol) round 2 (2026-10-19): request changes, two P1s, both
+reproduced. Round-1 fixes, write order, dirty users and alias kept were
+confirmed. Fixed:
+- P1: the three-failure reaction cap abandoned reactions that exist in
+  Google (a temporary outage for three runs = lost reactors for good, even
+  for a full listing). Replaced by backoff (`reactionRetryDelayMs`: 1 h
+  doubling to a week, `reactionRetryAfter` per message, never given up).
+  `reactionsDueAt` on the state lets a conversation be skipped while it
+  backs off and visited once due; the merge queues a refetch only when due.
+- P1: older states' `lastFullListingAt` was stamped after saving, so a stall
+  during the old code's save could claim coverage the listing never had.
+  `legacyCoverage` bounds it by the start of the latest recorded run that
+  began no later than the stamp (the listing ran inside that run); with no
+  such run the conversation is listed in full. On this store that moves the
+  first cutoffs to about an hour before the 2026-09-24 run's start.
+
+Full Claude re-review after Codex round 2 (2026-10-19): nothing at medium or
+above. One low, theoretical finding fixed: `legacyCoverage` is given the
+recorded runs other than the current one (`earlierRuns`), so a clock stepped
+back can't make the current run's start the bound. Informational, by design:
+messages with stored reactions that a full listing no longer returns keep
+retrying weekly.

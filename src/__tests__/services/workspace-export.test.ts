@@ -10,12 +10,15 @@ import {
   dedupeDiscoveredSpaces,
   deriveSpaceName,
   isInactiveSince,
+  legacyCoverage,
   listingCutoff,
   matchesSpaceFilter,
   pendingReactions,
+  summarizePendingReactions,
   toStoredReaction,
 } from '../../services/workspace-export';
 import type {
+  RunPointer,
   SpaceSyncState,
   StoredSpace,
   StoredUser,
@@ -211,6 +214,7 @@ describe('isInactiveSince', () => {
   const complete = {
     status: 'complete',
     lastFullListingAt: '2026-09-24T21:49:00.000Z',
+    listedThrough: '2026-09-24T21:49:00.000Z',
     maxCreateTime: '2026-09-01T10:00:00.123456Z',
   } as SpaceSyncState;
   const check = (
@@ -222,12 +226,20 @@ describe('isInactiveSince', () => {
       state: complete,
       since,
       hasRetryableAttachments: false,
-      reactionsPending: 0,
+      reactions: { pending: 0 },
+      runs: [],
+      now: '2026-10-19T12:00:00.000Z',
       ...overrides,
     });
 
   it('skips a stored conversation with no activity and the same members', () => {
     expect(check({})).toBe(true);
+    // …but not while it is backing off.
+    expect(
+      check({
+        reactions: { pending: 1, dueAt: '2026-10-20T12:00:00.000Z' },
+      })
+    ).toBe(true);
     // The listing filter is createTime > since, so activity exactly at the
     // cutoff has nothing to list.
     expect(check({ raw: { ...listed, lastActiveTime: since } })).toBe(true);
@@ -269,7 +281,12 @@ describe('isInactiveSince', () => {
     // Members never fetched: the count can't be trusted.
     expect(check({ existing: { ...existing, memberships: [] } })).toBe(false);
     expect(check({ hasRetryableAttachments: true })).toBe(false);
-    expect(check({ reactionsPending: 1 })).toBe(false);
+    // A pending reaction fetch holds the skip once it is due…
+    expect(
+      check({
+        reactions: { pending: 1, dueAt: '2026-10-19T11:00:00.000Z' },
+      })
+    ).toBe(false);
     // Never listed in full: a since run stored only part of its history.
     expect(
       check({ state: { ...complete, lastFullListingAt: undefined } })
@@ -294,32 +311,54 @@ describe('listingCutoff', () => {
       lastFullListingAt: '2026-09-01T00:00:00.000Z',
       ...patch,
     }) as SpaceSyncState;
+  const runs = [
+    { runId: 'a', startedAt: '2026-08-31T20:00:00.000Z', status: 'completed' },
+    { runId: 'b', startedAt: '2026-09-02T08:00:00.000Z', status: 'completed' },
+  ] as RunPointer[];
 
   it('lists everything without a cutoff or a full listing on record', () => {
-    expect(listingCutoff(undefined, state({}))).toBeUndefined();
+    expect(listingCutoff(undefined, state({}), runs)).toBeUndefined();
     expect(
-      listingCutoff(since, state({ lastFullListingAt: undefined }))
+      listingCutoff(since, state({ lastFullListingAt: undefined }), runs)
     ).toBeUndefined();
   });
 
-  it('uses the cutoff when the last listing came after it', () => {
-    expect(
-      listingCutoff(since, state({ listedThrough: '2026-10-19T14:00:00Z' }))
-    ).toBe(since);
-  });
-
-  it('starts an hour before the last listing when that came before the cutoff', () => {
-    expect(
-      listingCutoff(since, state({ listedThrough: '2026-08-01T10:00:00Z' }))
-    ).toBe('2026-08-01T09:00:00.000Z');
-    // Older states fall back to the full-listing time, even when an old
-    // --since run stamped a later lastMessagesSyncAt after listing a window.
+  it('uses the cutoff when coverage came after it', () => {
     expect(
       listingCutoff(
         since,
-        state({ lastMessagesSyncAt: '2026-10-19T14:00:00Z' })
+        state({ listedThrough: '2026-10-19T14:00:00Z' }),
+        runs
       )
-    ).toBe('2026-08-31T23:00:00.000Z');
+    ).toBe(since);
+  });
+
+  it('starts an hour before coverage when that came before the cutoff', () => {
+    expect(
+      listingCutoff(
+        since,
+        state({ listedThrough: '2026-08-01T10:00:00Z' }),
+        runs
+      )
+    ).toBe('2026-08-01T09:00:00.000Z');
+  });
+
+  it('bounds older states by the start of the run that did the full listing', () => {
+    // Old code stamped lastFullListingAt after saving, and an old --since
+    // run stamped lastMessagesSyncAt after listing only a window: neither is
+    // trusted. Run "a" started before the full listing, so it bounds it.
+    expect(
+      listingCutoff(
+        since,
+        state({ lastMessagesSyncAt: '2026-10-19T14:00:00Z' }),
+        runs
+      )
+    ).toBe('2026-08-31T19:00:00.000Z');
+    expect(legacyCoverage('2026-09-01T00:00:00.000Z', runs)).toBe(
+      '2026-08-31T20:00:00.000Z'
+    );
+    // No run known to have started before it: list in full.
+    expect(listingCutoff(since, state({}), [])).toBeUndefined();
   });
 });
 
@@ -331,18 +370,37 @@ describe('pendingReactions', () => {
     '2026-09-01T00:00:00.000Z'
   );
 
-  it('lists messages with reactions and no successful fetch, up to the cap', () => {
+  it('lists messages with reactions and no successful fetch, never giving up', () => {
     expect(pendingReactions([message])).toEqual([message.name]);
     expect(
       pendingReactions([{ ...message, reactionsFetchedRun: 'run1' }])
     ).toEqual([]);
+    // However often a fetch failed, the reactions exist in Google.
     expect(
-      pendingReactions([{ ...message, reactionFetchAttempts: 2 }])
+      pendingReactions([{ ...message, reactionFetchAttempts: 9 }])
     ).toEqual([message.name]);
-    // A fetch that keeps failing stops blocking skips after three tries.
-    expect(
-      pendingReactions([{ ...message, reactionFetchAttempts: 3 }])
-    ).toEqual([]);
     expect(pendingReactions([{ ...message, isDeleted: true }])).toEqual([]);
+  });
+
+  it('reports when the next backed-off fetch is due', () => {
+    const at = '2026-10-19T12:00:00.000Z';
+    expect(summarizePendingReactions([], at)).toEqual({
+      pending: 0,
+      dueAt: undefined,
+    });
+    expect(
+      summarizePendingReactions(
+        [
+          { ...message, reactionRetryAfter: '2026-10-21T00:00:00.000Z' },
+          {
+            ...message,
+            name: 'other',
+            reactionRetryAfter: '2026-10-20T00:00:00.000Z',
+          },
+        ],
+        at
+      )
+    ).toEqual({ pending: 2, dueAt: '2026-10-20T00:00:00.000Z' });
+    expect(summarizePendingReactions([message], at).dueAt).toBe(at);
   });
 });

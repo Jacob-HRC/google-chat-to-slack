@@ -420,11 +420,28 @@ describe('exportWorkspace deltas', () => {
     );
     expect(state.reactionsPending).toBe(1);
 
-    // Quiet since the cutoff, and the message is outside the window: still
-    // visited, and the reaction fetched.
+    // Backing off: the quiet conversation is skipped until the retry is due.
     chat.listReactionsAs.mockReset();
     chat.listReactionsAs.mockResolvedValue([]);
     chat.listMessagesAs.mockResolvedValue([]);
+    const early = await exportWorkspace(options({ since: SINCE }));
+    expect(early.totals.spacesSkipped).toBe(1);
+    expect(chat.listReactionsAs).not.toHaveBeenCalled();
+
+    // Once due: visited although quiet and outside the window, and fetched.
+    const file = messagesPath(root, 'AAAAgeneral');
+    const stored = await readJson<Record<string, unknown>[]>(file);
+    await writeFile(
+      file,
+      JSON.stringify(
+        stored.map((m) =>
+          m.reactionRetryAfter
+            ? { ...m, reactionRetryAfter: '2026-01-01T00:00:00.000Z' }
+            : m
+        )
+      )
+    );
+    await patchState({ reactionsDueAt: '2026-01-01T00:00:00.000Z' });
     const retry = await exportWorkspace(options({ since: SINCE }));
     expect(retry.totals.spacesSkipped).toBe(0);
     expect(chat.listReactionsAs).toHaveBeenCalledWith(

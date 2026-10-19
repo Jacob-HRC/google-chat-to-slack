@@ -557,8 +557,27 @@ function applyUpdate(
   };
 }
 
-/** Failed reaction fetches before a message stops being retried. */
-export const MAX_REACTION_FETCH_ATTEMPTS = 3;
+/** Longest wait between retries of a failing reaction fetch. */
+const REACTION_RETRY_MAX_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Wait after the nth failed reaction fetch: 1 h, 2 h, 4 h… up to a week.
+ * A failing fetch is never given up on, only spaced out. Pure.
+ */
+export function reactionRetryDelayMs(attempts: number): number {
+  return Math.min(
+    2 ** Math.max(0, attempts - 1) * 60 * 60 * 1000,
+    REACTION_RETRY_MAX_MS
+  );
+}
+
+/** Whether a failed reaction fetch may be retried at `now`. Pure. */
+export function reactionRetryDue(message: StoredMessage, now: string): boolean {
+  return (
+    !message.reactionRetryAfter ||
+    compareTimestamps(message.reactionRetryAfter, now) <= 0
+  );
+}
 
 /** A listed message whose content matches the stored one. */
 function mergeUnchanged(
@@ -574,7 +593,7 @@ function mergeUnchanged(
   const needsReactions =
     (hasReactions(fetched) || existing.reactions.length > 0) &&
     existing.reactionsFetchedRun === undefined &&
-    (existing.reactionFetchAttempts ?? 0) < MAX_REACTION_FETCH_ATTEMPTS &&
+    reactionRetryDue(existing, options.now) &&
     !existing.isDeleted &&
     !fetched.deleteTime;
   if (needsReactions) {
@@ -645,6 +664,7 @@ function mergeOne(
     ...applyUpdate(existing, fetched, options),
     reactionsFetchedRun: undefined,
     reactionFetchAttempts: undefined,
+    reactionRetryAfter: undefined,
   };
 }
 
