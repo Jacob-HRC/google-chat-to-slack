@@ -4,6 +4,7 @@ import {
   makeRunId,
   microsToSlackTs,
   parseRfc3339,
+  parseSinceArg,
   slackTsToIso,
   slackTsToMicros,
   toEpochMicros,
@@ -73,5 +74,30 @@ describe('makeRunId', () => {
     expect(makeRunId(new Date('2026-09-22T06:15:00.123Z'))).toBe(
       '20260922T061500Z'
     );
+  });
+});
+
+describe('parseSinceArg', () => {
+  const now = new Date('2026-10-19T12:00:00.000Z');
+
+  it('turns a span into a time before now', () => {
+    expect(parseSinceArg('30d', now)).toBe('2026-09-19T12:00:00.000Z');
+    expect(parseSinceArg('2w', now)).toBe('2026-10-05T12:00:00.000Z');
+    expect(parseSinceArg(' 12h ', now)).toBe('2026-10-19T00:00:00.000Z');
+    expect(parseSinceArg('30D', now)).toBe('2026-09-19T12:00:00.000Z');
+  });
+
+  it('passes an RFC 3339 time through and rejects anything else', () => {
+    expect(parseSinceArg('2026-09-24T12:40:00Z', now)).toBe(
+      '2026-09-24T12:40:00Z'
+    );
+    expect(parseSinceArg('2026-09-24T07:40:00-05:00', now)).toBe(
+      '2026-09-24T07:40:00-05:00'
+    );
+    expect(() => parseSinceArg('0d', now)).toThrow('positive');
+    expect(() => parseSinceArg('200000w', now)).toThrow('before 1970');
+    expect(() => parseSinceArg('99999999999d', now)).toThrow('before 1970');
+    expect(() => parseSinceArg('30 days', now)).toThrow('span like 30d');
+    expect(() => parseSinceArg('3m', now)).toThrow('span like 30d');
   });
 });

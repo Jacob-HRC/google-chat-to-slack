@@ -23,10 +23,11 @@ import type {
 } from '../types/export-store';
 import { mapWithConcurrency } from '../utils/concurrency';
 import { Logger } from '../utils/logger';
-import { makeRunId } from '../utils/timestamps';
+import { compareTimestamps, makeRunId } from '../utils/timestamps';
 import {
   buildAttachmentRecords,
   type DriveLinkPolicy,
+  isRetryable,
   syncAttachments,
 } from './attachments';
 import {
@@ -52,6 +53,7 @@ import {
   loadSpace,
   loadState,
   loadUsers,
+  type MergeResult,
   maxCreateTime,
   mergeMessages,
   mergeSpace,
@@ -86,6 +88,11 @@ export interface WorkspaceExportOptions {
   since?: string;
   /** Continue the previous run if it did not finish. */
   resume: boolean;
+  /**
+   * With `since`: leave alone conversations Google reports no activity in
+   * since then (see isInactiveSince).
+   */
+  skipInactive: boolean;
   /** Space ids, resource names or display names. Empty = all. */
   spaceFilter: string[];
   skipBotDms: boolean;
@@ -161,6 +168,70 @@ export function chooseReaderSubject(
     return previous;
   }
   return readers[0];
+}
+
+/** Overlap with a conversation's last listing, for messages posted during it. */
+const LISTING_OVERLAP_MS = 60 * 60 * 1000;
+
+/**
+ * Where a `since` run starts listing one conversation: `since`, or earlier if
+ * the conversation was last listed before it (minus an hour of overlap), so
+ * no run ever leaves a gap, whatever cutoff is passed and whichever runs were
+ * partial, failed or resumed. Undefined means list the whole history: no
+ * `since`, or the conversation was never listed in full. Pure.
+ */
+export function listingCutoff(
+  since: string | undefined,
+  state: SpaceSyncState | undefined
+): string | undefined {
+  if (!(since && state?.lastFullListingAt)) {
+    return;
+  }
+  const last = state.lastMessagesSyncAt ?? state.lastFullListingAt;
+  const covered = new Date(Date.parse(last) - LISTING_OVERLAP_MS).toISOString();
+  return compareTimestamps(covered, since) < 0 ? covered : since;
+}
+
+/**
+ * Whether a `since` run can leave a conversation alone: the store holds its
+ * full history, complete, with no stored message and no reported activity
+ * after its listing cutoff (see listingCutoff), no download still worth
+ * retrying, and the same member count. Pure.
+ */
+export function isInactiveSince(input: {
+  raw: chat_v1.Schema$Space;
+  existing: StoredSpace | undefined;
+  state: SpaceSyncState | undefined;
+  since: string;
+  hasRetryableAttachments: boolean;
+}): boolean {
+  const { raw, existing, state } = input;
+  const cutoff = listingCutoff(input.since, state);
+  if (
+    !existing ||
+    existing.source === 'vault' ||
+    existing.memberships.length === 0 ||
+    state?.status !== 'complete' ||
+    !cutoff ||
+    input.hasRetryableAttachments
+  ) {
+    return false;
+  }
+  if (
+    !raw.lastActiveTime ||
+    compareTimestamps(raw.lastActiveTime, cutoff) > 0 ||
+    (state.maxCreateTime && compareTimestamps(state.maxCreateTime, cutoff) > 0)
+  ) {
+    return false;
+  }
+  const current = raw.membershipCount;
+  const before = existing.raw.membershipCount;
+  return (
+    Boolean(current && before) &&
+    current?.joinedDirectHumanUserCount ===
+      before?.joinedDirectHumanUserCount &&
+    current?.joinedGroupCount === before?.joinedGroupCount
+  );
 }
 
 export function toStoredReaction(raw: chat_v1.Schema$Reaction): StoredReaction {
@@ -281,6 +352,8 @@ interface RunContext {
   subjectEmails: Set<string>;
   users: Record<string, StoredUser>;
   attachmentIndex: Record<string, AttachmentRecord>;
+  /** Spaces holding a download still worth retrying, as of the run's start. */
+  retryableSpaces: Set<string>;
 }
 
 function now(): string {
@@ -324,7 +397,7 @@ function emptySpaceResult(
 function initialReport(
   ctx: Omit<
     RunContext,
-    'report' | 'users' | 'attachmentIndex' | 'subjectEmails'
+    'report' | 'users' | 'attachmentIndex' | 'subjectEmails' | 'retryableSpaces'
   >
 ): RunReport {
   return {
@@ -540,6 +613,8 @@ async function fetchReactions(
       message.reactionsFetchedRun = ctx.runId;
       return reactions.length;
     } catch (error) {
+      // Unset, so the next listing of this message retries the fetch.
+      message.reactionsFetchedRun = undefined;
       ctx.logger.addWarning('reaction_list', name, describeGoogleError(error));
       return 0;
     }
@@ -564,13 +639,15 @@ function countAttachmentRecords(
   return count;
 }
 
+/** Indexes the named messages' attachments and says what that changed. */
 function indexAttachments(
   ctx: RunContext,
   messages: StoredMessage[],
   names: string[]
-): string[] {
+): { indexChanged: boolean; messagesChanged: boolean } {
   const byName = new Map(messages.map((m) => [m.name, m]));
-  const keys: string[] = [];
+  let indexChanged = false;
+  let messagesChanged = false;
   for (const name of names) {
     const message = byName.get(name);
     if (!message) {
@@ -583,22 +660,22 @@ function indexAttachments(
     for (const record of records) {
       if (!ctx.attachmentIndex[record.key]) {
         ctx.attachmentIndex[record.key] = record;
+        indexChanged = true;
       }
       messageKeys.add(record.key);
     }
-    message.attachmentKeys = Array.from(messageKeys);
-    keys.push(...message.attachmentKeys);
+    if (messageKeys.size !== message.attachmentKeys.length) {
+      message.attachmentKeys = Array.from(messageKeys);
+      messagesChanged = true;
+    }
   }
-  return Array.from(new Set(keys));
+  return { indexChanged, messagesChanged };
 }
 
+/** Records still worth a download attempt; out-of-retries failures are not. */
 function pendingAttachmentKeys(ctx: RunContext, spaceId: string): string[] {
   return Object.values(ctx.attachmentIndex)
-    .filter(
-      (r) =>
-        r.spaceId === spaceId &&
-        (r.status === 'pending' || r.status === 'failed')
-    )
+    .filter((r) => r.spaceId === spaceId && isRetryable(r))
     .map((r) => r.key);
 }
 
@@ -608,6 +685,12 @@ async function syncSpaceAttachments(
   result: SpaceRunResult
 ): Promise<void> {
   const keys = pendingAttachmentKeys(ctx, space.spaceId);
+  if (keys.length === 0) {
+    result.attachments.total = Object.values(ctx.attachmentIndex).filter(
+      (r) => r.spaceId === space.spaceId
+    ).length;
+    return;
+  }
   const memberSubjects = space.memberships
     .map((m) => activeEmail(ctx, m.chatUserId))
     .filter((email): email is string => Boolean(email));
@@ -646,6 +729,147 @@ function formatSpaceLine(space: StoredSpace, result: SpaceRunResult): string {
   return `${icon} ${label} · ${result.members} members · ${m.total} msgs (${delta})${files}`;
 }
 
+/**
+ * The listed space, but with the stored member count (none for a new space)
+ * when its members were not fetched: otherwise a failed member listing would
+ * record the new count against the old members, and later runs would skip
+ * the space as unchanged.
+ */
+function rawWithKnownMembers(
+  raw: chat_v1.Schema$Space,
+  existing: StoredSpace | undefined,
+  memberships: chat_v1.Schema$Membership[] | undefined
+): chat_v1.Schema$Space {
+  if (memberships) {
+    return raw;
+  }
+  return { ...raw, membershipCount: existing?.raw.membershipCount };
+}
+
+/**
+ * Records the fresh listing (readers, raw space) for a conversation the run
+ * leaves alone, without listing or rewriting its messages. A named Space's
+ * members are still refreshed (one call): Slack channel membership comes from
+ * them, and a swap (one leaves, one joins) keeps the member count the same.
+ */
+async function skipInactiveSpace(
+  ctx: RunContext,
+  discovered: DiscoveredSpace,
+  existing: StoredSpace | undefined,
+  result: SpaceRunResult
+): Promise<void> {
+  let memberships: chat_v1.Schema$Membership[] | undefined;
+  if (discovered.raw.spaceType === 'SPACE') {
+    try {
+      memberships = await listMembershipsAs(
+        result.readerSubject,
+        discovered.raw.name ?? ''
+      );
+    } catch (error) {
+      ctx.logger.addWarning(
+        'membership_list',
+        discovered.spaceId,
+        describeGoogleError(error)
+      );
+    }
+  }
+  const space = mergeSpace(existing, {
+    raw: rawWithKnownMembers(discovered.raw, existing, memberships),
+    readers: discovered.readers,
+    readerSubject: result.readerSubject,
+    memberships,
+    runId: ctx.runId,
+    now: now(),
+  });
+  if (memberships) {
+    // New members must be in users.json, or the archive drops them.
+    await resolveUsersFor(ctx, space, []);
+  }
+  if (space.spaceType === 'SPACE') {
+    // A named Space's title needs no messages; a rename is picked up here.
+    space.derivedDisplayName = deriveSpaceName(space, ctx.users);
+  }
+  if (!ctx.options.dryRun) {
+    await saveSpace(ctx.store, space);
+  }
+  result.status = 'skipped';
+  result.members = space.memberships.filter(
+    (m) => m.memberType !== 'BOT'
+  ).length;
+}
+
+/**
+ * Indexes attachments, then saves the index and the messages if either
+ * changed. Indexing comes first so a crash between saves never leaves new
+ * messages stored without their attachment keys (later runs see them
+ * unchanged and would never index them). A conversation an earlier run left
+ * part-way, or with no state at all, is re-indexed in full for the same
+ * reason.
+ */
+async function indexAndSaveMessages(
+  ctx: RunContext,
+  spaceId: string,
+  merge: MergeResult,
+  previousState: SpaceSyncState | undefined
+): Promise<void> {
+  const reindex =
+    previousState?.status === 'complete'
+      ? merge.diff.attachmentRefresh
+      : merge.messages.map((m) => m.name);
+  const indexed = indexAttachments(ctx, merge.messages, reindex);
+  if (indexed.indexChanged) {
+    await saveAttachmentIndex(ctx.store, ctx.attachmentIndex);
+  }
+  // Rewriting an unchanged history costs time and disk for nothing.
+  if (merge.diff.changed || indexed.messagesChanged) {
+    await saveMessages(ctx.store, spaceId, merge.messages);
+  }
+}
+
+/**
+ * The merge's reaction refreshes, plus, for a conversation an earlier run left
+ * part-way, every stored message with reactions not yet fetched: they may lie
+ * outside this run's listing window and would otherwise never be fetched.
+ */
+function reactionsToFetch(
+  merge: MergeResult,
+  previousState: SpaceSyncState | undefined
+): string[] {
+  if (previousState?.status === 'complete') {
+    return merge.diff.reactionRefresh;
+  }
+  const pending = merge.messages
+    .filter(
+      (m) =>
+        ((m.raw.emojiReactionSummaries?.length ?? 0) > 0 ||
+          m.reactions.length > 0) &&
+        m.reactionsFetchedRun === undefined &&
+        !m.isDeleted
+    )
+    .map((m) => m.name);
+  return Array.from(new Set([...merge.diff.reactionRefresh, ...pending]));
+}
+
+function canSkipInactive(
+  ctx: RunContext,
+  discovered: DiscoveredSpace,
+  existing: StoredSpace | undefined,
+  state: SpaceSyncState | undefined
+): boolean {
+  const { since, skipInactive } = ctx.options;
+  return Boolean(
+    since &&
+      skipInactive &&
+      isInactiveSince({
+        raw: discovered.raw,
+        existing,
+        state,
+        since,
+        hasRetryableAttachments: ctx.retryableSpaces.has(discovered.spaceId),
+      })
+  );
+}
+
 async function syncSpace(
   ctx: RunContext,
   discovered: DiscoveredSpace
@@ -671,6 +895,15 @@ async function syncSpace(
     return result;
   }
 
+  // Applies on resume too, or a resumed delta would list whole histories.
+  const since = options.since;
+  if (canSkipInactive(ctx, discovered, existingSpace, previousState)) {
+    await skipInactiveSpace(ctx, discovered, existingSpace, result);
+    result.messages.total = previousState?.messageCount ?? 0;
+    result.durationMs = Date.now() - started;
+    return result;
+  }
+
   // Memberships
   let memberships: chat_v1.Schema$Membership[] | undefined;
   try {
@@ -686,7 +919,7 @@ async function syncSpace(
     );
   }
   const space = mergeSpace(existingSpace, {
-    raw: discovered.raw,
+    raw: rawWithKnownMembers(discovered.raw, existingSpace, memberships),
     readers: discovered.readers,
     readerSubject,
     memberships,
@@ -702,15 +935,17 @@ async function syncSpace(
 
   // Messages
   const existingMessages = await loadMessages(store, spaceId);
-  const since = ctx.mode === 'delta-since' ? options.since : undefined;
+  // A conversation never listed in full gets its whole history, or a `since`
+  // run would store only the window and later skip it as inactive.
+  const listSince = listingCutoff(since, previousState);
   const fetched = await listMessagesAs(readerSubject, space.name, {
-    since,
+    since: listSince,
     limit: options.messageLimit,
   });
   const merge = mergeMessages(existingMessages, fetched, spaceId, {
     runId: ctx.runId,
     now: now(),
-    fetchedIsComplete: !(since || options.messageLimit),
+    fetchedIsComplete: !(listSince || options.messageLimit),
   });
   // The merge only ever adds. If a listed message is absent from the result,
   // saving would lose data: stop this space instead.
@@ -745,13 +980,28 @@ async function syncSpace(
     return result;
   }
 
-  await saveMessages(store, spaceId, merge.messages);
+  if (previousState?.status === 'complete' && merge.diff.changed) {
+    // Marked part-way before the first write, so a crash between the writes
+    // triggers the re-index and reaction repair next run.
+    await saveState(store, {
+      ...previousState,
+      status: 'messages-synced',
+      lastRunId: ctx.runId,
+    });
+  }
+  await indexAndSaveMessages(ctx, spaceId, merge, previousState);
   const state: SpaceSyncState = {
     spaceId,
     status: 'messages-synced',
     lastRunId: ctx.runId,
-    lastMessagesSyncAt: now(),
-    lastFullListingAt: since ? previousState?.lastFullListingAt : now(),
+    // A capped listing (test hook) covers only part of the window.
+    lastMessagesSyncAt: options.messageLimit
+      ? previousState?.lastMessagesSyncAt
+      : now(),
+    lastFullListingAt:
+      listSince || options.messageLimit
+        ? previousState?.lastFullListingAt
+        : now(),
     messageCount: merge.messages.length,
     deletedCount: merge.messages.filter((m) => m.isDeleted).length,
     missingCount: merge.messages.filter((m) => m.missingSince).length,
@@ -761,16 +1011,17 @@ async function syncSpace(
   await saveState(store, state);
 
   // Reactions, people, attachments
+  const reactionNames = reactionsToFetch(merge, previousState);
   result.reactions.fetched = await fetchReactions(
     ctx,
     readerSubject,
     merge.messages,
-    merge.diff.reactionRefresh
+    reactionNames
   );
   await resolveUsersFor(ctx, space, merge.messages);
-  indexAttachments(ctx, merge.messages, merge.diff.attachmentRefresh);
-  await saveMessages(store, spaceId, merge.messages);
-  await saveAttachmentIndex(store, ctx.attachmentIndex);
+  if (reactionNames.length > 0) {
+    await saveMessages(store, spaceId, merge.messages);
+  }
   if (!options.skipAttachments) {
     await syncSpaceAttachments(ctx, space, result);
   }
@@ -900,12 +1151,39 @@ export function printRunSummary(report: RunReport): void {
 // ---------------------------------------------------------------------------
 // Entry point
 
+/**
+ * A resumed run keeps the interrupted run's cutoff, or it would list whole
+ * histories for the conversations left (and a span like 30d moves with the
+ * clock). An explicit, different `since` wins but is reported.
+ */
+function withResumedSince(
+  requested: WorkspaceExportOptions,
+  store: ExportStore,
+  mode: RunReport['mode']
+): WorkspaceExportOptions {
+  const stored = store.manifest.lastRun?.since;
+  if (mode !== 'resume' || !stored) {
+    return requested;
+  }
+  if (!requested.since) {
+    console.log(`Resuming with the interrupted run's --since ${stored}`);
+    return { ...requested, since: stored };
+  }
+  if (requested.since !== stored) {
+    console.warn(
+      `--since ${requested.since} differs from the interrupted run's ${stored}; using ${requested.since}`
+    );
+  }
+  return requested;
+}
+
 export async function exportWorkspace(
-  options: WorkspaceExportOptions
+  requested: WorkspaceExportOptions
 ): Promise<RunReport> {
   const logger = new Logger('Workspace export');
-  const store = await openStore(options.outputDir);
-  const { runId, mode } = chooseRun(store, options);
+  const store = await openStore(requested.outputDir);
+  const { runId, mode } = chooseRun(store, requested);
+  const options = withResumedSince(requested, store, mode);
   const base = { options, store, runId, mode, logger };
   const ctx: RunContext = {
     ...base,
@@ -913,6 +1191,7 @@ export async function exportWorkspace(
     subjectEmails: new Set(),
     users: {},
     attachmentIndex: {},
+    retryableSpaces: new Set(),
   };
 
   console.log(
@@ -923,6 +1202,7 @@ export async function exportWorkspace(
       runId,
       startedAt: ctx.report.startedAt,
       status: 'running',
+      since: options.since,
     });
   }
 
@@ -941,6 +1221,11 @@ export async function exportWorkspace(
 
     ctx.users = await loadUsers(store);
     ctx.attachmentIndex = await loadAttachmentIndex(store);
+    ctx.retryableSpaces = new Set(
+      Object.values(ctx.attachmentIndex)
+        .filter(isRetryable)
+        .map((r) => r.spaceId)
+    );
 
     const targets = Array.from(discovered.values()).filter(
       (s) =>
@@ -978,6 +1263,7 @@ export async function exportWorkspace(
         startedAt: ctx.report.startedAt,
         finishedAt: ctx.report.finishedAt,
         status: ctx.report.status,
+        since: options.since,
       });
     }
     printRunSummary(ctx.report);

@@ -420,6 +420,16 @@ Johanna Moore (highridgemw.com) whose exact addresses are unknown.
   source, Space ID. When Jacob is done, read it back into
   data/slack/channel-visibility.csv by Space ID.
 
+### Faster deltas (Jacob, 2026-10-19)
+
+The `--since 2026-09-24T12:40:00Z` delta ran at ~14 conversations a minute
+(9 h for 7,201) because the 202 MB attachment index was rewritten twice per
+conversation. Jacob stopped it at 5,469 and asked for the fixes in
+.claude/tasks/faster-delta.md: selective writes, skipping conversations
+Google reports inactive since the cutoff, and `--since 30d` style windows.
+Routine deltas: `export-workspace --since 30d`. A full delta (no `--since`)
+before cutover still re-checks edits to older messages.
+
 ### Old Spaces as archived history (Jacob, 2026-10-19)
 
 - Every channel made from a Space (named, Vault, `mtg-` meeting channels) is

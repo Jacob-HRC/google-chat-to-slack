@@ -291,15 +291,26 @@ googletoslack export-workspace --user a@example.com --user b@example.com --space
 # Full export (first run) or delta (later runs)
 googletoslack export-workspace
 
-# Continue an interrupted run
+# Continue an interrupted run (a --since run keeps its own cutoff)
 googletoslack export-workspace --resume
 
-# Fast delta: only messages created after a timestamp (does not see edits or deletions of older messages)
+# Fast delta: messages created after a timestamp (does not see edits or deletions of older messages)
 googletoslack export-workspace --since 2026-09-01T00:00:00Z
+
+# Routine delta: re-check the last 30 days (new messages, plus edits, deletions and reactions on them)
+googletoslack export-workspace --since 30d
 
 # Also download copies of Docs/Sheets/Drive files that are merely linked in message text
 googletoslack export-workspace --drive-links download --drive-export-format pdf
 ```
+
+With `--since`, conversations Google reports no activity in since the cutoff
+(and whose member count is unchanged) are left alone, so a routine delta
+touches only the active ones. Each conversation is listed from the cutoff or
+from just before its own last listing, whichever is earlier, so a `--since
+30d` run after a long gap still misses nothing. `--no-skip-inactive` lists every conversation.
+A full delta (no `--since`) re-checks everything, including edits to old
+messages.
 
 What a run does, per space, once:
 

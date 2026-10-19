@@ -5,10 +5,16 @@ import {
   collectUserRefs,
   dedupeDiscoveredSpaces,
   deriveSpaceName,
+  isInactiveSince,
+  listingCutoff,
   matchesSpaceFilter,
   toStoredReaction,
 } from '../../services/workspace-export';
-import type { StoredUser } from '../../types/export-store';
+import type {
+  SpaceSyncState,
+  StoredSpace,
+  StoredUser,
+} from '../../types/export-store';
 import {
   MEMBERSHIPS_DM,
   MEMBERSHIPS_GENERAL,
@@ -175,5 +181,136 @@ describe('collectUserRefs and deriveSpaceName', () => {
     expect(deriveSpaceName(soloDm, users, messages)).toBe(
       'Former user 000003, Pat Pastor'
     );
+  });
+});
+
+describe('isInactiveSince', () => {
+  const since = '2026-09-24T12:40:00Z';
+  const counts = { joinedDirectHumanUserCount: 3, joinedGroupCount: 0 };
+  const listed = {
+    ...SPACE_GENERAL,
+    lastActiveTime: '2026-09-01T10:00:00.123456Z',
+    membershipCount: counts,
+  };
+  const existing = {
+    ...mergeSpace(undefined, {
+      raw: { ...SPACE_GENERAL, membershipCount: { ...counts } },
+      readers: ['pastor@example.com'],
+      readerSubject: 'pastor@example.com',
+      memberships: MEMBERSHIPS_GENERAL,
+      runId: 'run1',
+      now: '2026-09-24T00:00:00.000Z',
+    }),
+  } as StoredSpace;
+  const complete = {
+    status: 'complete',
+    lastFullListingAt: '2026-09-24T21:49:00.000Z',
+    maxCreateTime: '2026-09-01T10:00:00.123456Z',
+  } as SpaceSyncState;
+  const check = (
+    overrides: Partial<Parameters<typeof isInactiveSince>[0]>
+  ): boolean =>
+    isInactiveSince({
+      raw: listed,
+      existing,
+      state: complete,
+      since,
+      hasRetryableAttachments: false,
+      ...overrides,
+    });
+
+  it('skips a stored conversation with no activity and the same members', () => {
+    expect(check({})).toBe(true);
+    // The listing filter is createTime > since, so activity exactly at the
+    // cutoff has nothing to list.
+    expect(check({ raw: { ...listed, lastActiveTime: since } })).toBe(true);
+    // Offsets compare by instant: 07:40-05:00 is 12:40Z.
+    expect(
+      check({
+        raw: { ...listed, lastActiveTime: '2026-09-24T07:39:00-05:00' },
+      })
+    ).toBe(true);
+  });
+
+  it('syncs anything that may have changed or is not safely stored', () => {
+    expect(
+      check({ raw: { ...listed, lastActiveTime: '2026-10-01T09:00:00Z' } })
+    ).toBe(false);
+    expect(check({ raw: { ...listed, lastActiveTime: undefined } })).toBe(
+      false
+    );
+    expect(
+      check({
+        raw: {
+          ...listed,
+          membershipCount: { ...counts, joinedDirectHumanUserCount: 4 },
+        },
+      })
+    ).toBe(false);
+    expect(check({ raw: { ...listed, membershipCount: undefined } })).toBe(
+      false
+    );
+    expect(
+      check({
+        raw: { ...listed, membershipCount: { ...counts, joinedGroupCount: 1 } },
+      })
+    ).toBe(false);
+    expect(
+      check({ raw: { ...listed, lastActiveTime: '2026-09-24T07:41:00-05:00' } })
+    ).toBe(false);
+    expect(check({ existing: undefined })).toBe(false);
+    // Members never fetched: the count can't be trusted.
+    expect(check({ existing: { ...existing, memberships: [] } })).toBe(false);
+    expect(check({ hasRetryableAttachments: true })).toBe(false);
+    // Never listed in full: a since run stored only part of its history.
+    expect(
+      check({ state: { ...complete, lastFullListingAt: undefined } })
+    ).toBe(false);
+    // Stored messages inside the window are re-listed for edits and deletions.
+    expect(
+      check({ state: { ...complete, maxCreateTime: '2026-10-01T00:00:00Z' } })
+    ).toBe(false);
+    expect(check({ existing: { ...existing, source: 'vault' } })).toBe(false);
+    expect(check({ state: undefined })).toBe(false);
+    expect(
+      check({ state: { status: 'messages-synced' } as SpaceSyncState })
+    ).toBe(false);
+  });
+});
+
+describe('listingCutoff', () => {
+  const since = '2026-09-24T12:40:00Z';
+  const state = (patch: Partial<SpaceSyncState>): SpaceSyncState =>
+    ({
+      status: 'complete',
+      lastFullListingAt: '2026-09-01T00:00:00.000Z',
+      ...patch,
+    }) as SpaceSyncState;
+
+  it('lists everything without a cutoff or a full listing on record', () => {
+    expect(listingCutoff(undefined, state({}))).toBeUndefined();
+    expect(
+      listingCutoff(since, state({ lastFullListingAt: undefined }))
+    ).toBeUndefined();
+  });
+
+  it('uses the cutoff when the last listing came after it', () => {
+    expect(
+      listingCutoff(
+        since,
+        state({ lastMessagesSyncAt: '2026-10-19T14:00:00Z' })
+      )
+    ).toBe(since);
+  });
+
+  it('starts an hour before the last listing when that came before the cutoff', () => {
+    expect(
+      listingCutoff(
+        since,
+        state({ lastMessagesSyncAt: '2026-08-01T10:00:00Z' })
+      )
+    ).toBe('2026-08-01T09:00:00.000Z');
+    // Older states may only have the full-listing time.
+    expect(listingCutoff(since, state({}))).toBe('2026-08-31T23:00:00.000Z');
   });
 });

@@ -468,6 +468,11 @@ export interface MergeDiff {
   reactionRefresh: string[];
   /** Names of messages whose attachments must be (re)indexed. */
   attachmentRefresh: string[];
+  /**
+   * Whether any stored message changed beyond its last-seen stamps. When
+   * false, the stored messages need not be written back.
+   */
+  changed: boolean;
 }
 
 export interface MergeResult {
@@ -552,6 +557,38 @@ function applyUpdate(
   };
 }
 
+/** A listed message whose content matches the stored one. */
+function mergeUnchanged(
+  existing: StoredMessage,
+  fetched: chat_v1.Schema$Message,
+  hash: string,
+  options: MergeOptions,
+  diff: MergeDiff
+): StoredMessage {
+  diff.unchanged += 1;
+  // Also when reactions are stored but the last fetch failed (all removed).
+  // Never for a deleted message: Google returns nothing worth keeping.
+  const needsReactions =
+    (hasReactions(fetched) || existing.reactions.length > 0) &&
+    existing.reactionsFetchedRun === undefined &&
+    !existing.isDeleted &&
+    !fetched.deleteTime;
+  if (needsReactions) {
+    diff.reactionRefresh.push(existing.name);
+  }
+  const contentHash = existing.isDeleted ? existing.contentHash : hash;
+  if (needsReactions || contentHash !== existing.contentHash) {
+    diff.changed = true;
+  }
+  return {
+    ...existing,
+    contentHash,
+    lastSeenRun: options.runId,
+    lastSeenAt: options.now,
+    missingSince: undefined,
+  };
+}
+
 function mergeOne(
   existing: StoredMessage | undefined,
   fetched: chat_v1.Schema$Message,
@@ -561,6 +598,7 @@ function mergeOne(
 ): StoredMessage {
   if (!existing) {
     diff.added += 1;
+    diff.changed = true;
     if (hasReactions(fetched)) {
       diff.reactionRefresh.push(fetched.name ?? '');
     }
@@ -570,11 +608,13 @@ function mergeOne(
 
   if (existing.missingSince) {
     diff.reappeared += 1;
+    diff.changed = true;
   }
 
   const fetchedDeleted = Boolean(fetched.deleteTime);
   if (fetchedDeleted && !existing.isDeleted) {
     diff.deleted += 1;
+    diff.changed = true;
     return applyDeletion(existing, fetched, options);
   }
 
@@ -584,27 +624,23 @@ function mergeOne(
   const isSameContent =
     hash === existing.contentHash || hash === messageContentHash(existing.raw);
   if (fetchedDeleted || isSameContent) {
-    diff.unchanged += 1;
-    const needsReactions =
-      hasReactions(fetched) && existing.reactionsFetchedRun === undefined;
-    if (needsReactions) {
-      diff.reactionRefresh.push(existing.name);
-    }
-    return {
-      ...existing,
-      contentHash: existing.isDeleted ? existing.contentHash : hash,
-      lastSeenRun: options.runId,
-      lastSeenAt: options.now,
-      missingSince: undefined,
-    };
+    return mergeUnchanged(existing, fetched, hash, options, diff);
   }
 
   diff.updated += 1;
-  if (hasReactions(fetched)) {
-    diff.reactionRefresh.push(existing.name);
-  }
+  diff.changed = true;
   diff.attachmentRefresh.push(existing.name);
-  return applyUpdate(existing, fetched, options);
+  // Also when the last reaction was removed, or the stored ones stay stale.
+  if (!(hasReactions(fetched) || existing.reactions.length > 0)) {
+    return applyUpdate(existing, fetched, options);
+  }
+  diff.reactionRefresh.push(existing.name);
+  // Unset until the refetch succeeds, so a crash before it can't leave the
+  // old reactions looking current.
+  return {
+    ...applyUpdate(existing, fetched, options),
+    reactionsFetchedRun: undefined,
+  };
 }
 
 /**
@@ -661,6 +697,7 @@ export function mergeMessages(
     reappeared: 0,
     reactionRefresh: [],
     attachmentRefresh: [],
+    changed: false,
   };
   // Keyed by shared identity so a Vault-sourced copy of a message is replaced
   // by the Chat API copy rather than sitting beside it.
@@ -685,6 +722,7 @@ export function mergeMessages(
       !message.missingSince
     ) {
       diff.missing += 1;
+      diff.changed = true;
       merged.push({ ...message, missingSince: options.now });
     } else {
       if (message.missingSince && !message.isDeleted) {

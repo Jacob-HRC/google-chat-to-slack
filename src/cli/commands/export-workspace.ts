@@ -13,7 +13,7 @@ import {
   configureForExport,
   EXPORT_RATE_LIMITS,
 } from '../../utils/rate-limiting';
-import { parseRfc3339 } from '../../utils/timestamps';
+import { parseSinceArg } from '../../utils/timestamps';
 
 type ExportWorkspaceArgs = {
   output: string;
@@ -23,6 +23,7 @@ type ExportWorkspaceArgs = {
   dryRun?: boolean;
   since?: string;
   resume?: boolean;
+  skipInactive?: boolean;
   skipBotDms?: boolean;
   driveLinks?: string;
   driveExportFormat?: string;
@@ -31,6 +32,18 @@ type ExportWorkspaceArgs = {
   concurrency?: number;
   refreshUsers?: boolean;
 };
+
+/** `--since` as an RFC 3339 time, printed when it was given as a span. */
+function resolveSince(value: string | undefined): string | undefined {
+  if (!value) {
+    return;
+  }
+  const since = parseSinceArg(value, new Date());
+  if (since !== value.trim()) {
+    console.log(`--since ${value} → ${since}`);
+  }
+  return since;
+}
 
 export const exportWorkspaceCommand: CommandModule<
   object,
@@ -71,13 +84,20 @@ export const exportWorkspaceCommand: CommandModule<
       })
       .option('since', {
         describe:
-          'RFC 3339 timestamp. Only list messages created after it (faster delta; cannot detect edits or deletions of older messages).',
+          "RFC 3339 time, or a span back from now such as 30d, 2w or 12h. List messages created after it (or after a conversation's own last listing, if that was earlier): new messages, plus edits, deletions and reaction changes on those. Older messages are not re-checked.",
         type: 'string',
       })
       .option('resume', {
-        describe: 'Continue the last run if it was interrupted.',
+        describe:
+          'Continue the last run if it was interrupted. A --since run keeps its own cutoff; passing a different --since overrides it, with a warning.',
         type: 'boolean',
         default: false,
+      })
+      .option('skip-inactive', {
+        describe:
+          'With --since: leave alone conversations Google reports no activity in since then and whose member count is unchanged. --no-skip-inactive lists every conversation.',
+        type: 'boolean',
+        default: true,
       })
       .option('skip-bot-dms', {
         describe: 'Skip DMs with Chat apps and bots.',
@@ -132,6 +152,10 @@ export const exportWorkspaceCommand: CommandModule<
         '$0 export-workspace --since 2026-09-01T00:00:00Z',
         'Fast delta for new messages only'
       )
+      .example(
+        '$0 export-workspace --since 30d',
+        'Re-check the last 30 days of every active conversation'
+      )
       .strict()
       .fail((msg, err, yargsInstance) => {
         if (msg) {
@@ -154,9 +178,7 @@ export const exportWorkspaceCommand: CommandModule<
         );
         process.exit(1);
       }
-      if (argv.since) {
-        parseRfc3339(argv.since);
-      }
+      const since = resolveSince(argv.since);
 
       const report = await exportWorkspace({
         outputDir: path.resolve(argv.output),
@@ -165,8 +187,9 @@ export const exportWorkspaceCommand: CommandModule<
           orgUnit: argv.orgUnit,
         }),
         dryRun: argv.dryRun ?? false,
-        since: argv.since,
+        since,
         resume: argv.resume ?? false,
+        skipInactive: argv.skipInactive ?? true,
         spaceFilter: argv.space ?? [],
         skipBotDms: argv.skipBotDms ?? false,
         driveLinks: (argv.driveLinks ?? 'metadata') as DriveLinkPolicy,

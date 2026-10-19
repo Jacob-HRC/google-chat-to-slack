@@ -27,6 +27,8 @@ export interface RunPointer {
   startedAt: string;
   finishedAt?: string;
   status: RunStatus;
+  /** The run's `--since` cutoff, so `--resume` can reuse it. */
+  since?: string;
 }
 
 export interface StoreManifest {
@@ -187,6 +189,10 @@ export interface StoredMessage {
   history: MessageVersion[];
   firstSeenRun: string;
   firstSeenAt: string;
+  /**
+   * Last run that listed this message and rewrote its conversation's file (a
+   * listing that changed nothing in the conversation doesn't rewrite it).
+   */
   lastSeenRun: string;
   lastSeenAt: string;
   /** Set when a full listing no longer returns the message and Google did not report a deletion. */

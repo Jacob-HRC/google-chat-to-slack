@@ -3,11 +3,14 @@ import {
   attachmentFileName,
   attachmentKey,
   buildAttachmentRecords,
+  syncAttachments,
   uniquePath,
 } from '../../services/attachments';
 import { chooseExportFormat, isGoogleNativeMime } from '../../services/drive';
 import { toStoredMessage } from '../../services/export-store';
+import type { AttachmentRecord } from '../../types/export-store';
 import { safeFilename } from '../../utils/fs-atomic';
+import { Logger } from '../../utils/logger';
 import { MSG_PLAIN, MSG_WITH_ATTACHMENTS } from '../fixtures/chat-api';
 
 const NOW = '2026-09-01T00:00:00.000Z';
@@ -172,5 +175,48 @@ describe('attachment paths', () => {
     expect(uniquePath('/f/msg/Budget', 'drive/X', new Map())).toBe(
       '/f/msg/Budget'
     );
+  });
+});
+
+describe('syncAttachments saving', () => {
+  // The real index runs to hundreds of MB, so a save with no work is costly.
+  const message = toStoredMessage(
+    MSG_WITH_ATTACHMENTS,
+    'AAAAgeneral',
+    'run1',
+    NOW
+  );
+  const linkOnly: AttachmentRecord = {
+    ...buildAttachmentRecords(message, { driveLinks: 'metadata' })[3],
+    status: 'link-only',
+  };
+
+  function noReader(): string | undefined {
+    return;
+  }
+
+  function run(keys: string[]): Promise<number> {
+    let saves = 0;
+    return syncAttachments({ [linkOnly.key]: linkOnly }, keys, {
+      filesDir: '/nonexistent',
+      readerSubject: 'reader@example.com',
+      subjectForUser: noReader,
+      memberSubjects: [],
+      driveExportFormat: 'office',
+      logger: new Logger('test'),
+      save: () => {
+        saves += 1;
+        return Promise.resolve();
+      },
+    }).then(() => saves);
+  }
+
+  it('does not save when there is nothing to process', async () => {
+    expect(await run([])).toBe(0);
+    expect(await run(['AAAAgeneral/unknown/upload-0'])).toBe(0);
+  });
+
+  it('saves once after processing records', async () => {
+    expect(await run([linkOnly.key])).toBe(1);
   });
 });

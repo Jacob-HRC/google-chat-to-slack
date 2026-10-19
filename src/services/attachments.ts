@@ -431,10 +431,19 @@ function isDone(record: AttachmentRecord): boolean {
   );
 }
 
+/** Still worth a download attempt: pending, or failed with attempts left. */
+export function isRetryable(record: AttachmentRecord): boolean {
+  return (
+    record.status === 'pending' ||
+    (record.status === 'failed' && record.attempts < MAX_ATTEMPTS)
+  );
+}
+
 /**
  * Downloads every pending record in `index` (for the given keys), retrying
  * failures up to MAX_ATTEMPTS across runs. The index is saved periodically so
- * a crash loses at most a handful of entries.
+ * a crash loses at most a handful of entries, and not at all when nothing was
+ * processed: it runs to hundreds of MB, and most conversations have no work.
  */
 export async function syncAttachments(
   index: Record<string, AttachmentRecord>,
@@ -449,10 +458,14 @@ export async function syncAttachments(
     failed: 0,
     bytes: 0,
   };
+  if (!keys.some((key) => index[key])) {
+    return stats;
+  }
   let sinceSave = 0;
   const claims = ctx.claims ?? new Map<string, string>();
+  const wanted = new Set(keys);
   for (const record of Object.values(index)) {
-    if (record.localPath && !keys.includes(record.key)) {
+    if (record.localPath && !wanted.has(record.key)) {
       claims.set(record.localPath, fileIdentity(record));
     }
   }
@@ -476,7 +489,9 @@ export async function syncAttachments(
       sinceSave = 0;
     }
   }
-  await ctx.save();
+  if (sinceSave > 0) {
+    await ctx.save();
+  }
   return stats;
 }
 

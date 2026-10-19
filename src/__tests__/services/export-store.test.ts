@@ -199,6 +199,7 @@ describe('mergeMessages', () => {
     });
     expect(diff.reactionRefresh).toEqual([MSG_REPLY_WITH_REACTION.name]);
     expect(diff.attachmentRefresh).toHaveLength(3);
+    expect(diff.changed).toBe(true);
   });
 
   it('is idempotent for an unchanged listing', () => {
@@ -223,6 +224,8 @@ describe('mergeMessages', () => {
       missing: 0,
     });
     expect(second.diff.reactionRefresh).toEqual([]);
+    // Only last-seen stamps moved, so the history need not be rewritten.
+    expect(second.diff.changed).toBe(false);
     expect(second.messages[0].lastSeenRun).toBe('run2');
     expect(second.messages[0].firstSeenRun).toBe('run1');
   });
@@ -241,6 +244,97 @@ describe('mergeMessages', () => {
       RUN_2
     );
     expect(second.diff.reactionRefresh).toEqual([MSG_REPLY_WITH_REACTION.name]);
+    expect(second.diff.changed).toBe(true);
+  });
+
+  it('refetches reactions when the last one was removed', () => {
+    const first = mergeMessages(
+      [],
+      [MSG_REPLY_WITH_REACTION],
+      'AAAAgeneral',
+      RUN_1
+    );
+    first.messages[0].reactionsFetchedRun = 'run1';
+    first.messages[0].reactions = [
+      { user: USER_PASTOR, emoji: { unicode: '👍' } },
+    ] as (typeof first.messages)[0]['reactions'];
+    const second = mergeMessages(
+      first.messages,
+      [{ ...MSG_REPLY_WITH_REACTION, emojiReactionSummaries: [] }],
+      'AAAAgeneral',
+      RUN_2
+    );
+    expect(second.diff.updated).toBe(1);
+    expect(second.diff.reactionRefresh).toEqual([MSG_REPLY_WITH_REACTION.name]);
+  });
+
+  it('retries a failed reaction fetch when reactions are stored', () => {
+    const first = mergeMessages(
+      [],
+      [MSG_REPLY_WITH_REACTION],
+      'AAAAgeneral',
+      RUN_1
+    );
+    // The last fetch failed after the reactions were removed in Google.
+    first.messages[0].reactions = [
+      { user: USER_PASTOR, emoji: { unicode: '👍' } },
+    ] as (typeof first.messages)[0]['reactions'];
+    const removed = { ...MSG_REPLY_WITH_REACTION, emojiReactionSummaries: [] };
+    first.messages[0].contentHash = messageContentHash(removed);
+    const second = mergeMessages(
+      first.messages,
+      [removed],
+      'AAAAgeneral',
+      RUN_2
+    );
+    expect(second.diff.unchanged).toBe(1);
+    expect(second.diff.reactionRefresh).toEqual([MSG_REPLY_WITH_REACTION.name]);
+  });
+
+  it('marks reactions unfetched until the refetch after an update succeeds', () => {
+    const first = mergeMessages(
+      [],
+      [MSG_REPLY_WITH_REACTION],
+      'AAAAgeneral',
+      RUN_1
+    );
+    first.messages[0].reactionsFetchedRun = 'run1';
+    const second = mergeMessages(
+      first.messages,
+      [{ ...MSG_REPLY_WITH_REACTION, text: 'edited, reactions changed' }],
+      'AAAAgeneral',
+      RUN_2
+    );
+    expect(second.diff.reactionRefresh).toEqual([MSG_REPLY_WITH_REACTION.name]);
+    expect(second.messages[0].reactionsFetchedRun).toBeUndefined();
+  });
+
+  it('never refetches reactions of a deleted message', () => {
+    const first = mergeMessages(
+      [],
+      [MSG_REPLY_WITH_REACTION],
+      'AAAAgeneral',
+      RUN_1
+    );
+    const deleted = {
+      ...MSG_REPLY_WITH_REACTION,
+      deleteTime: '2026-10-01T00:00:00Z',
+    };
+    const second = mergeMessages(
+      first.messages,
+      [deleted],
+      'AAAAgeneral',
+      RUN_2
+    );
+    expect(second.messages[0].isDeleted).toBe(true);
+    second.messages[0].reactions = [
+      { user: USER_PASTOR, emoji: { unicode: '👍' } },
+    ] as (typeof second.messages)[0]['reactions'];
+    const third = mergeMessages(second.messages, [deleted], 'AAAAgeneral', {
+      ...RUN_2,
+      runId: 'run3',
+    });
+    expect(third.diff.reactionRefresh).toEqual([]);
   });
 
   it('treats a stale stored hash as unchanged when the content is identical', () => {
@@ -253,6 +347,8 @@ describe('mergeMessages', () => {
       RUN_2
     );
     expect(second.diff).toMatchObject({ updated: 0, unchanged: 1 });
+    // The stored hash is replaced, which is a change worth saving.
+    expect(second.diff.changed).toBe(true);
     expect(second.messages[0].history).toHaveLength(0);
     expect(second.messages[0].contentHash).toBe(messageContentHash(MSG_PLAIN));
   });
@@ -266,6 +362,7 @@ describe('mergeMessages', () => {
       RUN_2
     );
     expect(second.diff.updated).toBe(1);
+    expect(second.diff.changed).toBe(true);
     const [message] = second.messages;
     expect(message.text).toContain('(edited)');
     expect(message.lastUpdateTime).toBe('2025-02-02T10:00:00.000000Z');
@@ -285,6 +382,7 @@ describe('mergeMessages', () => {
       RUN_2
     );
     expect(second.diff.deleted).toBe(1);
+    expect(second.diff.changed).toBe(true);
     const [message] = second.messages;
     expect(message.isDeleted).toBe(true);
     expect(message.deletion?.deletionType).toBe('CREATOR');
@@ -301,6 +399,7 @@ describe('mergeMessages', () => {
       }
     );
     expect(third.diff).toMatchObject({ deleted: 0, unchanged: 1 });
+    expect(third.diff.changed).toBe(false);
     expect(third.messages[0].raw.text).toBe(MSG_PLAIN.text);
   });
 
@@ -318,6 +417,7 @@ describe('mergeMessages', () => {
       RUN_2
     );
     expect(second.diff.missing).toBe(1);
+    expect(second.diff.changed).toBe(true);
     expect(second.messages).toHaveLength(2);
     const gone = second.messages.find((m) => m.messageId === 'msg002.msg002');
     expect(gone?.missingSince).toBe(RUN_2.now);
@@ -329,6 +429,7 @@ describe('mergeMessages', () => {
       { ...RUN_2, runId: 'run3' }
     );
     expect(third.diff.reappeared).toBe(1);
+    expect(third.diff.changed).toBe(true);
     expect(third.diff.missing).toBe(0);
     expect(third.messages[1].missingSince).toBeUndefined();
   });
@@ -352,6 +453,29 @@ describe('mergeMessages', () => {
     expect(second.diff).toMatchObject({ added: 1, missing: 0 });
     expect(second.messages).toHaveLength(3);
     expect(second.messages.every((m) => !m.missingSince)).toBe(true);
+  });
+
+  it('reports no change for an empty partial listing, even with old missing marks', () => {
+    const first = mergeMessages(
+      [],
+      [MSG_PLAIN, MSG_REPLY_WITH_REACTION],
+      'AAAAgeneral',
+      RUN_1
+    );
+    const second = mergeMessages(
+      first.messages,
+      [MSG_PLAIN],
+      'AAAAgeneral',
+      RUN_2
+    );
+    const third = mergeMessages(second.messages, [], 'AAAAgeneral', {
+      ...RUN_2,
+      runId: 'run3',
+      fetchedIsComplete: false,
+    });
+    // The already-missing message is counted, but nothing is new.
+    expect(third.diff.missing).toBe(1);
+    expect(third.diff.changed).toBe(false);
   });
 
   it('reports the newest createTime', () => {

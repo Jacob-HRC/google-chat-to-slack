@@ -16,6 +16,39 @@ export interface ParsedTimestamp {
   nanos: string;
 }
 
+const RELATIVE_SINCE_REGEX = /^(\d+)([hdw])$/i;
+const RELATIVE_UNIT_MS = { h: 3_600_000, d: 86_400_000, w: 604_800_000 };
+
+/**
+ * A `--since` value: an RFC 3339 time, or a span before `now` such as `30d`,
+ * `2w` or `12h`. Returns an RFC 3339 time. Pure.
+ */
+export function parseSinceArg(value: string, now: Date): string {
+  const trimmed = value.trim();
+  const relative = RELATIVE_SINCE_REGEX.exec(trimmed);
+  if (relative) {
+    const amount = Number(relative[1]);
+    if (amount <= 0) {
+      throw new Error(`--since span must be positive: ${value}`);
+    }
+    const unit = relative[2].toLowerCase() as keyof typeof RELATIVE_UNIT_MS;
+    const at = new Date(now.getTime() - amount * RELATIVE_UNIT_MS[unit]);
+    // Out-of-range spans give an invalid or pre-year-0 date.
+    if (Number.isNaN(at.getTime()) || at.getUTCFullYear() < 1970) {
+      throw new Error(`--since span reaches before 1970: ${value}`);
+    }
+    return at.toISOString();
+  }
+  try {
+    parseRfc3339(trimmed);
+  } catch {
+    throw new Error(
+      `--since must be an RFC 3339 time or a span like 30d, 2w or 12h: ${value}`
+    );
+  }
+  return trimmed;
+}
+
 export function parseRfc3339(value: string): ParsedTimestamp {
   const match = RFC3339_REGEX.exec(value.trim());
   if (!match) {

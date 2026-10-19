@@ -254,6 +254,28 @@ data/workspace/
    Each step persists before the next starts, so a crash costs at most one
    space's partial work; `--resume` reuses the interrupted run id and skips
    spaces already complete in it.
+5. With `--since`, each space is listed from its own cutoff
+   (`listingCutoff`): `--since`, or an hour before the space's last listing
+   if that came first. So no cutoff, partial run, failed space or resume can
+   leave a gap. A space never listed in full is listed without a cutoff.
+   A space is left alone (`isInactiveSince`) when the store holds it
+   complete, neither the listing's `lastActiveTime` nor the newest stored
+   message is after its cutoff, no download is still worth retrying, and
+   `membershipCount` is unchanged. Its space record is refreshed, and a named
+   Space's members too (a swap keeps the count). A failed member listing
+   keeps the stored count, so it can't make a stale member list look
+   current. Attachments are indexed before a space's messages are saved, and
+   a space left part-way (or with no state) by an earlier run is re-indexed
+   in full and has its unfetched reactions fetched.
+   `--no-skip-inactive` lists every space; `--refresh-users` then also
+   reaches people referenced only in skipped spaces. The cutoff is saved on
+   the run pointer, and `--resume` reuses it.
+
+Writes are kept to what changed. A space's messages are rewritten only when
+the merge changed something beyond last-seen stamps (`MergeDiff.changed`),
+and `attachments/index.json` (over 200 MB on the HRC store) only when a
+record was added or processed. Before this, an unchanged delta rewrote the
+index twice per space: 5.4 GB a minute, 1.7 TB over 5,469 spaces.
 
 ### Merge rules (`mergeMessages`, pure, tested)
 
@@ -268,8 +290,13 @@ data/workspace/
   `missingSince` set. Never removed. A later listing that returns it clears
   the flag (`reappeared`).
 - `--since` listings are partial: nothing is marked missing.
-- Reactions are re-fetched when the reaction summary changes or was never
-  fetched.
+- Reactions are re-fetched when the reaction summary changes (including the
+  last reaction being removed) or was never fetched.
+- `diff.changed` is false when only `lastSeenRun`/`lastSeenAt` would move,
+  and the history is then not rewritten. Those stamps now mean "last run that
+  listed this message and rewrote its conversation", and so do the
+  `runId`/`seenAt` that `applyUpdate` and `applyDeletion` copy into
+  `history`. No code reads either.
 
 ### Timestamps
 
@@ -684,6 +711,8 @@ Per member-less space (`unreachable-spaces.json`, no members):
 - **Never exported** → full history.
 - **Held from the Chat API** (it lost its last member after we synced it) →
   messages since the last API sync, less `--overlap-hours` (default 48).
+  A `--since` run that skips an inactive space doesn't advance its
+  `lastMessagesSyncAt`, which only widens this overlap.
   These are the messages sent between our last sync and the member leaving,
   which only Vault still has.
 - **Exported before, Vault data only** → skipped. With no members nobody can
