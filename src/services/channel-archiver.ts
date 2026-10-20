@@ -289,13 +289,18 @@ export function planPrivateArchives(
 
 /**
  * One line of the admin list: the name and the created time the imported
- * channel has, so the admin can tell it from a namesake before archiving.
+ * channel has (UTC), so the admin can tell it from a namesake before
+ * archiving. With no ZIP time, the build time it must be created after.
  * Pure.
  */
-export function adminListLine(name: string, created?: number): string {
+export function adminListLine(
+  name: string,
+  builtAt: string,
+  created?: number
+): string {
   return created
     ? `${name}\tcreated ${new Date(created * 1000).toISOString()}`
-    : `${name}\tcreated after the build`;
+    : `${name}\tcreated after ${builtAt}`;
 }
 
 /** Archives a private channel with a member's own token. */

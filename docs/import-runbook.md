@@ -273,7 +273,8 @@ hand. Private channels no connected member is in are listed in
 the imported channel has. Slack channel names are unique, so the channel
 under a listed name may be an older namesake rather than the import's:
 before archiving one by hand, check that its creation date in Slack matches
-the list.
+the list. The list's times are UTC; Slack shows the date in your own time
+zone, so it can be a day off.
 
 Expect that list to be long. Only people already active in Slack can approve
 the app, and many private Spaces are left with only former staff, who are

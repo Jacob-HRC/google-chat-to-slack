@@ -246,18 +246,19 @@ describe('archive-channels', () => {
       ['gchat-old-board', 1_600_000_000],
     ]);
     const names = [...zipCreated.keys()];
+    // Both are in the imported team channel. The finance channel by that
+    // name is a live one made after the build, so not the import's.
     const held = [
       {
         person: ann,
-        all: new Map([
-          // A live namesake made after the build: not the import's.
-          ['gchat-old-team', ref('G9', later)],
-          ['gchat-old-finance', ref('G9F', 1_500_000_000)],
-        ]),
+        all: new Map([['gchat-old-finance', ref('G9', later)]]),
       },
       {
         person: bob,
-        all: new Map([['gchat-old-team', ref('G1', 1_663_698_678)]]),
+        all: new Map([
+          ['gchat-old-team', ref('G1', 1_663_698_678)],
+          ['gchat-old-finance', ref('G9', later)],
+        ]),
       },
     ];
 
@@ -299,11 +300,11 @@ describe('archive-channels', () => {
     });
 
     it('gives the admin the created time to check each name against', () => {
-      expect(adminListLine('gchat-old-board', 1_600_000_000)).toBe(
+      expect(adminListLine('gchat-old-board', builtAt, 1_600_000_000)).toBe(
         'gchat-old-board\tcreated 2020-09-13T12:26:40.000Z'
       );
-      expect(adminListLine('gchat-old-mtg-x')).toBe(
-        'gchat-old-mtg-x\tcreated after the build'
+      expect(adminListLine('gchat-old-mtg-x', builtAt)).toBe(
+        `gchat-old-mtg-x\tcreated after ${builtAt}`
       );
     });
   });

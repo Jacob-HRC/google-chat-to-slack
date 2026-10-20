@@ -246,7 +246,11 @@ export const archiveChannelsCommand: CommandModule<
       const createdOf = new Map(targets.map((t) => [t.name, t.created]));
       await writeFile(
         listPath,
-        left.map((n) => `${adminListLine(n, createdOf.get(n))}\n`).join(''),
+        left
+          .map(
+            (n) => `${adminListLine(n, manifest.builtAt, createdOf.get(n))}\n`
+          )
+          .join(''),
         'utf-8'
       );
       console.log(
