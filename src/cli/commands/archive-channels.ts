@@ -14,6 +14,7 @@ import {
   createdByImport,
   pickArchivers,
   privateChannelsOf,
+  readArchiveCreated,
 } from '../../services/channel-archiver';
 import { getSlackWebClient } from '../../services/slack';
 import { sidecarPath } from '../../services/slack-archive/writer';
@@ -55,7 +56,7 @@ async function archivePublic(
     let outcome: ArchiveOutcome | 'would-archive';
     if (!channel) {
       outcome = 'not-found';
-    } else if (!createdByImport(channel, builtAt)) {
+    } else if (!createdByImport(channel, builtAt, target.created)) {
       outcome = 'not-imported';
     } else if (dryRun) {
       outcome = channel.isArchived ? 'already' : 'would-archive';
@@ -128,6 +129,7 @@ async function archivePrivate(
   dryRun: boolean
 ): Promise<{ counts: Counts; left: string[] }> {
   const people = await connectedArchivers(teamId);
+  const zipCreated = new Map(targets.map((t) => [t.name, t.created]));
   const membership: Array<{
     person: ConnectedMember;
     channels: Awaited<ReturnType<typeof privateChannelsOf>>;
@@ -137,7 +139,9 @@ async function archivePrivate(
     const all = await privateChannelsOf(person.client);
     // Never a pre-existing channel that shares a name with an imported one.
     const channels = new Map<string, ChannelRef>(
-      [...all].filter(([, channel]) => createdByImport(channel, builtAt))
+      [...all].filter(([name, channel]) =>
+        createdByImport(channel, builtAt, zipCreated.get(name))
+      )
     );
     membership.push({ person, channels });
   }
@@ -198,7 +202,10 @@ export const archiveChannelsCommand: CommandModule<
       if (!manifest) {
         throw new Error('archive manifest not found beside the ZIP');
       }
-      const targets = archiveTargets(manifest);
+      const targets = archiveTargets(
+        manifest,
+        await readArchiveCreated(zipPath)
+      );
       const dryRun = argv.dryRun ?? false;
       const bot = await getSlackWebClient();
       const teamId = (await bot.auth.test()).team_id ?? '';

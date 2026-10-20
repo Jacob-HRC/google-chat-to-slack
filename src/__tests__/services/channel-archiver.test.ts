@@ -1,5 +1,11 @@
+import { createWriteStream } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { pipeline } from 'node:stream/promises';
 import type { WebClient } from '@slack/web-api';
 import { describe, expect, it } from 'vitest';
+import yazl from 'yazl';
 import {
   archiveAsMember,
   archivePublicChannel,
@@ -7,6 +13,7 @@ import {
   type ConnectedMember,
   createdByImport,
   pickArchivers,
+  readArchiveCreated,
 } from '../../services/channel-archiver';
 import type {
   ArchiveConversationMapping,
@@ -159,5 +166,69 @@ describe('archive-channels', () => {
     expect(createdByImport(at('2026-10-01T13:00:00Z'), builtAt)).toBe(true);
     expect(createdByImport(at('2026-10-01T12:00:00Z'), builtAt)).toBe(true);
     expect(createdByImport(at('2024-05-01T00:00:00Z'), builtAt)).toBe(false);
+  });
+
+  it('knows an imported channel by the created time the ZIP gave it', () => {
+    // Slack keeps the ZIP's created (the Space's, years back) on import.
+    const builtAt = '2026-10-19T14:50:03.573Z';
+    const zipCreated = 1_663_698_678;
+    const channel = (created: number) => ({
+      id: 'G1',
+      isArchived: false,
+      created,
+    });
+    expect(createdByImport(channel(zipCreated), builtAt, zipCreated)).toBe(
+      true
+    );
+    expect(createdByImport(channel(zipCreated), builtAt)).toBe(false);
+    expect(createdByImport(channel(zipCreated - 1), builtAt, zipCreated)).toBe(
+      false
+    );
+    expect(createdByImport(channel(0), builtAt, 0)).toBe(false);
+  });
+
+  it('reads the created time of every channel in the ZIP', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'archiver-'));
+    const zipPath = path.join(dir, 'a.zip');
+    const zip = new yazl.ZipFile();
+    zip.addBuffer(
+      Buffer.from(JSON.stringify([{ name: 'gchat-old-team', created: 100 }])),
+      'channels.json'
+    );
+    zip.addBuffer(
+      Buffer.from(
+        JSON.stringify([
+          { name: 'gchat-old-finance', created: 200 },
+          { name: 'no-time' },
+        ])
+      ),
+      'groups.json'
+    );
+    zip.addBuffer(
+      Buffer.from(JSON.stringify([{ name: 'gchat-old-team', created: 999 }])),
+      'gchat-old-team/channels.json'
+    );
+    zip.end();
+    await pipeline(zip.outputStream, createWriteStream(zipPath));
+    const created = await readArchiveCreated(zipPath);
+    expect([...created]).toEqual([
+      ['gchat-old-team', 100],
+      ['gchat-old-finance', 200],
+    ]);
+    expect(
+      archiveTargets(
+        {
+          conversations: {
+            A: conversation('gchat-old-team', 'channel', {
+              archiveAfterImport: true,
+            }),
+          },
+        } as unknown as ArchiveManifest,
+        created
+      )
+    ).toEqual([
+      { spaceId: 'A', name: 'gchat-old-team', isPrivate: false, created: 100 },
+    ]);
+    await rm(dir, { recursive: true, force: true });
   });
 });

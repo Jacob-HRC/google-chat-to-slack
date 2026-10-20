@@ -9,12 +9,15 @@
  * listed for a person to archive.
  */
 import type { WebClient } from '@slack/web-api';
+import yauzl from 'yauzl';
 import type { ArchiveManifest } from '../types/slack-export';
 
 export interface ArchiveTarget {
   spaceId: string;
   name: string;
   isPrivate: boolean;
+  /** Unix seconds the ZIP gives the channel; Slack keeps it on import. */
+  created?: number;
 }
 
 export type ArchiveOutcome =
@@ -28,29 +31,79 @@ export type ArchiveOutcome =
 export interface ChannelRef {
   id: string;
   isArchived: boolean;
-  /** Unix seconds. The importer creates channels at import time. */
+  /**
+   * Unix seconds. The importer keeps the `created` the ZIP gives the
+   * channel (the Space's own creation, often years back), not import time.
+   */
   created: number;
 }
 
 /**
  * Only a channel the import created may be archived. Names are how imported
  * channels are found, and an older channel with the same name (one the bot
- * could not see at build time, or renamed since) must never be touched. Pure.
+ * could not see at build time, or renamed since) must never be touched.
+ * Slack keeps the ZIP's `created` to the second, so a channel whose
+ * `created` matches the ZIP's is the imported one. A channel created after
+ * the build counts too, for one the ZIP gave no time. Pure.
  */
-export function createdByImport(channel: ChannelRef, builtAt: string): boolean {
+export function createdByImport(
+  channel: ChannelRef,
+  builtAt: string,
+  zipCreated?: number
+): boolean {
+  if (zipCreated && channel.created === zipCreated) {
+    return true;
+  }
   return channel.created * 1000 >= Date.parse(builtAt);
 }
 
-/** Channels the manifest marks for archiving. Pure. */
-export function archiveTargets(manifest: ArchiveManifest): ArchiveTarget[] {
+/** Channels the manifest marks for archiving, with the ZIP's `created` by name. Pure. */
+export function archiveTargets(
+  manifest: ArchiveManifest,
+  zipCreated: Map<string, number> = new Map()
+): ArchiveTarget[] {
   return Object.entries(manifest.conversations)
     .filter(([, c]) => c.archiveAfterImport && !c.skippedReason)
     .map(([spaceId, c]) => ({
       spaceId,
       name: c.name,
       isPrivate: c.kind === 'group',
+      created: zipCreated.get(c.name),
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+const CHANNEL_LISTS = new Set(['channels.json', 'groups.json']);
+
+/** The `created` of every channel and private channel in the ZIP, by name. */
+export async function readArchiveCreated(
+  zipPath: string
+): Promise<Map<string, number>> {
+  const zip = await yauzl.openPromise(zipPath);
+  const created = new Map<string, number>();
+  try {
+    for await (const entry of zip.eachEntry()) {
+      if (!CHANNEL_LISTS.has(entry.fileName)) {
+        continue;
+      }
+      const stream = await zip.openReadStreamPromise(entry);
+      const chunks: Buffer[] = [];
+      for await (const chunk of stream) {
+        chunks.push(chunk as Buffer);
+      }
+      const channels = JSON.parse(
+        Buffer.concat(chunks).toString('utf-8')
+      ) as Array<{ name?: string; created?: number }>;
+      for (const channel of channels) {
+        if (channel.name && channel.created) {
+          created.set(channel.name, channel.created);
+        }
+      }
+    }
+  } finally {
+    zip.close();
+  }
+  return created;
 }
 
 /** Slack channels the bot can see, by name. */
