@@ -12,9 +12,10 @@ import {
   archiveTargets,
   type ConnectedMember,
   createdByImport,
-  deltaPrivateWarning,
   importedChannels,
+  isDeltaBuild,
   pickArchivers,
+  planPrivateArchives,
   readArchiveCreated,
 } from '../../services/channel-archiver';
 import type {
@@ -218,22 +219,82 @@ describe('archive-channels', () => {
     ]);
   });
 
-  it('names every private match in a delta build, and nothing otherwise', () => {
+  it('knows a delta build by its options', () => {
     const manifest = (options: Partial<ArchiveManifest['options']>) =>
       ({ options }) as unknown as ArchiveManifest;
-    expect(deltaPrivateWarning(manifest({}), ['gchat-old-x'])).toBeUndefined();
+    expect(isDeltaBuild(manifest({}))).toBe(false);
     expect(
-      deltaPrivateWarning(
-        manifest({ messagesSince: '2026-10-01T00:00:00Z' }),
-        []
-      )
-    ).toBeUndefined();
-    expect(
-      deltaPrivateWarning(manifest({ firstSeenAfterRun: 'R1' }), [
-        'gchat-old-x',
-        'gchat-old-y',
-      ])
-    ).toContain('#gchat-old-x, #gchat-old-y');
+      isDeltaBuild(manifest({ messagesSince: '2026-10-01T00:00:00Z' }))
+    ).toBe(true);
+    expect(isDeltaBuild(manifest({ firstSeenAfterRun: 'R1' }))).toBe(true);
+  });
+
+  describe('private channel decisions', () => {
+    const builtAt = '2026-10-19T14:50:03.573Z';
+    const later = Date.parse('2026-10-20T09:00:00Z') / 1000;
+    const ref = (id: string, created: number) => ({
+      id,
+      isArchived: false,
+      created,
+    });
+    const ann = { slackId: 'UANN' } as unknown as ConnectedMember;
+    const bob = { slackId: 'UBOB' } as unknown as ConnectedMember;
+    const zipCreated = new Map<string, number | undefined>([
+      ['gchat-old-team', 1_663_698_678],
+      ['gchat-old-finance', 1_646_155_577],
+      ['gchat-old-board', 1_600_000_000],
+    ]);
+    const names = [...zipCreated.keys()];
+    const held = [
+      {
+        person: ann,
+        all: new Map([
+          // A live namesake made after the build: not the import's.
+          ['gchat-old-team', ref('G9', later)],
+          ['gchat-old-finance', ref('G9F', 1_500_000_000)],
+        ]),
+      },
+      {
+        person: bob,
+        all: new Map([['gchat-old-team', ref('G1', 1_663_698_678)]]),
+      },
+    ];
+
+    it('archives the imported channel, flags namesakes, lists the unreachable', () => {
+      const decisions = planPrivateArchives(
+        names,
+        held,
+        builtAt,
+        zipCreated,
+        false
+      );
+      expect(
+        decisions.map((d) => [
+          d.name,
+          d.action,
+          d.action === 'archive' ? `${d.person.slackId}:${d.channel.id}` : '',
+        ])
+      ).toEqual([
+        ['gchat-old-team', 'archive', 'UBOB:G1'],
+        ['gchat-old-finance', 'not-imported', ''],
+        ['gchat-old-board', 'needs-member', ''],
+      ]);
+    });
+
+    it('never archives a private match in a delta build', () => {
+      const decisions = planPrivateArchives(
+        names,
+        held,
+        builtAt,
+        zipCreated,
+        true
+      );
+      expect(decisions.map((d) => d.action)).toEqual([
+        'check-delta',
+        'not-imported',
+        'needs-member',
+      ]);
+    });
   });
 
   it('reads the created time of every channel in the ZIP', async () => {

@@ -253,16 +253,22 @@ The bot joins and archives each public channel marked for archiving (with
 `channels:manage`). It cannot join private channels, so each of those is
 archived with the token of a member who approved the app (the approval
 includes `groups:write`). Slack shows that member as having archived the
-channel. Only channels the import created are touched. Slack keeps the
-`created` time the ZIP gives each channel (the earlier of the Space's
-creation and its first message, often years back), so a channel counts as
-the import's only when its `created` matches the ZIP's to the second. Only a
-channel the ZIP gives no time (an `mtg-` series whose first meeting has
-none) counts by being created after the build. The match was confirmed on
-private channels in the 2026-10-20 channel test; the test had no public
-channel. A channel by the right name whose `created` doesn't match is
-reported `not-imported`. If many come back that way, compare one's `created`
-with `channels.json` or `groups.json` before archiving by hand. Whatever no connected member can reach is listed in
+channel. Only channels the import created are touched.
+
+How it knows: Slack keeps the `created` time the ZIP gives each channel,
+often years back. For a Space that is the earlier of its creation and its
+first message; for an `mtg-` series, the first meeting's creation. A channel
+counts as the import's only when its `created` matches the ZIP's to the
+second. Only a channel the ZIP gives no time (an `mtg-` series whose first
+meeting has none) counts by being created after the build. The match was
+confirmed on private channels in the 2026-10-20 channel test; the test had
+no public channel.
+
+A channel by the right name whose `created` doesn't match is reported
+`not-imported` and left alone. It may be someone's live channel, so it is
+not put on the admin list. If many come back that way, compare one's
+`created` with `channels.json` or `groups.json` before doing anything by
+hand. Private channels no connected member is in are listed in
 `hrc-full.archive-private.txt` for an admin.
 
 Expect that list to be long. Only people already active in Slack can approve
@@ -272,9 +278,9 @@ imported deactivated. On the 2026-10-19 store, 128 of the 180 private
 in Slack, and 35 have only deactivated members. Run the `--dry-run` as soon
 as Jacob and Ken have connected to see how many remain. A private channel
 whose members are all deactivated is invisible to everyone active, so leaving
-it unarchived exposes nothing. For the others, ask a member to approve the app and rerun, or archive
-it from Slack's admin channel management if the plan allows that for private
-channels (not yet checked).
+it unarchived exposes nothing. For the others, ask a member to approve the
+app and rerun, or archive it from Slack's admin channel management if the
+plan allows that for private channels (not yet checked).
 
 Archive `chat-import-members` by hand once verification is done. It holds no
 messages and exists only so the importer brings everyone in.
@@ -322,9 +328,8 @@ first.
   channels, so the roster can't see their names, and the delta reuses
   `gchat-old-<name>`. What the importer does with that clash is untested.
   The delta's channel has the same name and created time as the full
-  import's, so archive-channels finds the old one: it reports it `already`,
-  or archives it if it was still open. For a delta build it lists every
-  private channel it matched. Check where those deltas landed and archive
-  them by hand.
+  import's, so archive-channels would find the old one. For a delta build it
+  never archives a private channel: it reports each match `check-delta` and
+  lists them. Check where those deltas landed and archive them by hand.
 - If a kept pilot was a Space, it was built without the prefix and isn't in
   the full manifest. Rename and archive its channel by hand.

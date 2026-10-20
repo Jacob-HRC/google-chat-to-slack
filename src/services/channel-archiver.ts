@@ -26,6 +26,7 @@ export type ArchiveOutcome =
   | 'not-found'
   | 'not-imported'
   | 'needs-member'
+  | 'check-delta'
   | 'failed';
 
 export interface ChannelRef {
@@ -71,23 +72,11 @@ export function importedChannels(
   );
 }
 
-/**
- * A delta gives a private Space the full import's name and created time,
- * but can't land in that channel, so a private channel matched in a delta
- * may be the earlier import's, not this delta's. Says which to check by
- * hand, or nothing when the build isn't a delta. Pure.
- */
-export function deltaPrivateWarning(
-  manifest: ArchiveManifest,
-  matched: string[]
-): string | undefined {
-  const isDelta = Boolean(
+/** Built with --messages-since or --first-seen-after. Pure. */
+export function isDeltaBuild(manifest: ArchiveManifest): boolean {
+  return Boolean(
     manifest.options.messagesSince || manifest.options.firstSeenAfterRun
   );
-  if (!isDelta || matched.length === 0) {
-    return;
-  }
-  return `   This is a delta build. ${matched.length} private channel(s) matched by name and created time may be the earlier import's channel, not this delta's; check by hand where the delta landed: ${matched.map((n) => `#${n}`).join(', ')}`;
 }
 
 /** Channels the manifest marks for archiving, with the ZIP's `created` by name. Pure. */
@@ -244,6 +233,57 @@ export function pickArchivers(
     }
   }
   return picked;
+}
+
+export type PrivateDecision =
+  | {
+      name: string;
+      action: 'archive';
+      person: ConnectedMember;
+      channel: ChannelRef;
+    }
+  | {
+      name: string;
+      action: 'needs-member' | 'not-imported' | 'check-delta';
+    };
+
+/**
+ * What to do with each private target, given the private channels each
+ * connected person is in. Pure.
+ * - `archive`: someone holds the channel the import created.
+ * - `not-imported`: someone holds a channel by that name whose created
+ *   doesn't match, so it is not the import's and must not be archived, by
+ *   the tool or by an admin working from the list.
+ * - `needs-member`: nobody connected holds it.
+ * - `check-delta`: a delta build matched it. A delta reuses a private
+ *   Space's name and created time but can't land in the earlier import's
+ *   channel, so the match is likely that older channel; never archived here.
+ */
+export function planPrivateArchives(
+  names: string[],
+  held: Array<{ person: ConnectedMember; all: Map<string, ChannelRef> }>,
+  builtAt: string,
+  zipCreated: Map<string, number | undefined>,
+  isDelta: boolean
+): PrivateDecision[] {
+  const membership = held.map(({ person, all }) => ({
+    person,
+    channels: importedChannels(all, builtAt, zipCreated),
+  }));
+  const heldNames = new Set(held.flatMap(({ all }) => [...all.keys()]));
+  const picked = pickArchivers(names, membership);
+  return names.map((name): PrivateDecision => {
+    const choice = picked.get(name);
+    if (choice) {
+      return isDelta
+        ? { name, action: 'check-delta' }
+        : { name, action: 'archive', ...choice };
+    }
+    return {
+      name,
+      action: heldNames.has(name) ? 'not-imported' : 'needs-member',
+    };
+  });
 }
 
 /** Archives a private channel with a member's own token. */

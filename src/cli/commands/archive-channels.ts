@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { WebClient } from '@slack/web-api';
@@ -8,12 +9,12 @@ import {
   archiveAsMember,
   archivePublicChannel,
   archiveTargets,
+  type ChannelRef,
   type ConnectedMember,
   channelsByName,
   createdByImport,
-  deltaPrivateWarning,
-  importedChannels,
-  pickArchivers,
+  isDeltaBuild,
+  planPrivateArchives,
   privateChannelsOf,
   readArchiveCreated,
 } from '../../services/channel-archiver';
@@ -122,85 +123,59 @@ async function archiverFor(
   }
 }
 
-type Membership = Array<{
-  person: ConnectedMember;
-  channels: Awaited<ReturnType<typeof privateChannelsOf>>;
-}>;
-
 /**
- * The imported private channels each connected person is in, and the target
- * names someone holds whose created doesn't match (not the import's).
- */
-async function importedMembership(
-  people: ConnectedMember[],
-  builtAt: string,
-  zipCreated: Map<string, number | undefined>
-): Promise<{ membership: Membership; mismatched: Set<string> }> {
-  const membership: Membership = [];
-  const mismatched = new Set<string>();
-  for (const person of people) {
-    // biome-ignore lint/nursery/noAwaitInLoop: one person's channel list at a time.
-    const all = await privateChannelsOf(person.client);
-    // Never a pre-existing channel that shares a name with an imported one.
-    const channels = importedChannels(all, builtAt, zipCreated);
-    for (const name of all.keys()) {
-      if (zipCreated.has(name) && !channels.has(name)) {
-        mismatched.add(name);
-      }
-    }
-    membership.push({ person, channels });
-  }
-  return { membership, mismatched };
-}
-
-/**
- * Archives each private channel with a connected member's token; returns
- * the ones left and the ones matched to a Slack channel.
+ * Archives each private channel with a connected member's token. Returns
+ * the ones no connected member can reach (for an admin), and the ones a
+ * delta build matched (for a hand check).
  */
 async function archivePrivate(
   targets: ArchiveTarget[],
   teamId: string,
   builtAt: string,
+  isDelta: boolean,
   dryRun: boolean
-): Promise<{ counts: Counts; left: string[]; matched: string[] }> {
+): Promise<{ counts: Counts; left: string[]; deltaMatches: string[] }> {
   const people = await connectedArchivers(teamId);
-  const zipCreated = new Map(targets.map((t) => [t.name, t.created]));
-  const { membership, mismatched } = await importedMembership(
-    people,
+  const held: Array<{ person: ConnectedMember; all: Map<string, ChannelRef> }> =
+    [];
+  for (const person of people) {
+    // biome-ignore lint/nursery/noAwaitInLoop: one person's channel list at a time.
+    held.push({ person, all: await privateChannelsOf(person.client) });
+  }
+  const decisions = planPrivateArchives(
+    targets.map((t) => t.name),
+    held,
     builtAt,
-    zipCreated
+    new Map(targets.map((t) => [t.name, t.created])),
+    isDelta
   );
-  const names = targets.map((t) => t.name);
-  const picked = pickArchivers(names, membership);
   const counts: Counts = new Map();
   const left: string[] = [];
-  const matched: string[] = [];
-  for (const name of names) {
-    const choice = picked.get(name);
+  const deltaMatches: string[] = [];
+  for (const decision of decisions) {
     let outcome: ArchiveOutcome | 'would-archive';
-    if (!choice) {
-      outcome = mismatched.has(name) ? 'not-imported' : 'needs-member';
+    if (decision.action !== 'archive') {
+      outcome = decision.action;
     } else if (dryRun) {
-      outcome = choice.channel.isArchived ? 'already' : 'would-archive';
+      outcome = decision.channel.isArchived ? 'already' : 'would-archive';
     } else {
       // biome-ignore lint/nursery/noAwaitInLoop: one channel at a time, inside Slack's rate limits.
-      outcome = await archiveAsMember(choice.person.client, choice.channel);
+      outcome = await archiveAsMember(decision.person.client, decision.channel);
     }
     tally(counts, outcome);
-    if (!choice || outcome === 'failed') {
-      left.push(name);
-    }
-    if (choice) {
-      matched.push(name);
+    if (outcome === 'needs-member' || outcome === 'failed') {
+      left.push(decision.name);
+    } else if (outcome === 'check-delta') {
+      deltaMatches.push(decision.name);
     }
     if (outcome === 'not-imported' || outcome === 'failed') {
-      console.warn(`   ${outcome}: #${name}`);
+      console.warn(`   ${outcome}: #${decision.name}`);
     }
   }
   console.log(
     `   ${people.length} connected people can archive private channels`
   );
-  return { counts, left, matched };
+  return { counts, left, deltaMatches };
 }
 
 export const archiveChannelsCommand: CommandModule<
@@ -228,6 +203,11 @@ export const archiveChannelsCommand: CommandModule<
         throw new Error('--archive is required');
       }
       const zipPath = path.resolve(argv.archive);
+      if (!existsSync(zipPath)) {
+        throw new Error(
+          `${zipPath} not found; archive-channels reads each channel's created time from the ZIP`
+        );
+      }
       const manifest = await readJsonFile<ArchiveManifest>(
         sidecarPath(zipPath, 'archive-manifest.json')
       );
@@ -248,16 +228,18 @@ export const archiveChannelsCommand: CommandModule<
         dryRun
       );
       console.log(`Public channels: ${summary(publicCounts)}`);
-      const { counts, left, matched } = await archivePrivate(
+      const { counts, left, deltaMatches } = await archivePrivate(
         targets.filter((t) => t.isPrivate),
         teamId,
         manifest.builtAt,
+        isDeltaBuild(manifest),
         dryRun
       );
       console.log(`Private channels: ${summary(counts)}`);
-      const deltaWarning = deltaPrivateWarning(manifest, matched);
-      if (deltaWarning) {
-        console.warn(deltaWarning);
+      if (deltaMatches.length > 0) {
+        console.warn(
+          `   Delta build: ${deltaMatches.length} private channel(s) not archived. A delta reuses the earlier import's name and created time, so each match is likely that older channel. Check where the delta landed and archive by hand: ${deltaMatches.map((n) => `#${n}`).join(', ')}`
+        );
       }
       const listPath = sidecarPath(zipPath, 'archive-private.txt');
       await writeFile(
