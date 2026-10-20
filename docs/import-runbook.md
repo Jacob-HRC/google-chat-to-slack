@@ -254,12 +254,15 @@ The bot joins and archives each public channel marked for archiving (with
 archived with the token of a member who approved the app (the approval
 includes `groups:write`). Slack shows that member as having archived the
 channel. Only channels the import created are touched. Slack keeps the
-`created` time the ZIP gives each channel (the Space's own, often years
-back), so a channel counts as the import's only when its `created` matches
-the ZIP's to the second. That was confirmed on private channels in the
-2026-10-20 channel test; the test had no public channel. If public channels
-come back `not-imported`, compare one's `created` with `channels.json` before
-archiving by hand. Whatever no connected member can reach is listed in
+`created` time the ZIP gives each channel (the earlier of the Space's
+creation and its first message, often years back), so a channel counts as
+the import's only when its `created` matches the ZIP's to the second. Only a
+channel the ZIP gives no time (an `mtg-` series whose first meeting has
+none) counts by being created after the build. The match was confirmed on
+private channels in the 2026-10-20 channel test; the test had no public
+channel. A channel by the right name whose `created` doesn't match is
+reported `not-imported`. If many come back that way, compare one's `created`
+with `channels.json` or `groups.json` before archiving by hand. Whatever no connected member can reach is listed in
 `hrc-full.archive-private.txt` for an admin.
 
 Expect that list to be long. Only people already active in Slack can approve
@@ -319,8 +322,9 @@ first.
   channels, so the roster can't see their names, and the delta reuses
   `gchat-old-<name>`. What the importer does with that clash is untested.
   The delta's channel has the same name and created time as the full
-  import's, so archive-channels finds the old, archived one and reports it
-  `already` (it warns when the build is a delta). Check where those deltas
-  landed and archive them by hand.
+  import's, so archive-channels finds the old one: it reports it `already`,
+  or archives it if it was still open. For a delta build it lists every
+  private channel it matched. Check where those deltas landed and archive
+  them by hand.
 - If a kept pilot was a Space, it was built without the prefix and isn't in
   the full manifest. Rename and archive its channel by hand.

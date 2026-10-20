@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { readArchiveCreated } from '../../services/channel-archiver';
 import { mergeSpace } from '../../services/export-store';
 import { buildArchiveModel } from '../../services/slack-archive/builder';
 import { planConversation } from '../../services/slack-archive/conversations';
@@ -825,6 +826,16 @@ describe('archive from a fixture store', () => {
       path.join(out, 'archive.members-before.json'),
       path.join(out, 'archive.files-to-upload.json'),
     ]);
+    // archive-channels reads each channel's created back from the ZIP.
+    expect(
+      Object.fromEntries(
+        await readArchiveCreated(path.join(out, 'archive.zip'))
+      )
+    ).toEqual(
+      Object.fromEntries(
+        [...model.channels, ...model.groups].map((c) => [c.name, c.created])
+      )
+    );
     const index = messageIndex(model);
     const indexed = index.reduce((sum, c) => sum + c.messages.length, 0);
     expect(indexed).toBe(model.manifest.totals.messages);

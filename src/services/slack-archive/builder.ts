@@ -442,7 +442,12 @@ function seriesHome(
   const series = meetingSeries(meeting.space.displayName);
   const known = seriesChannels.get(series);
   if (known) {
-    known.plan.members = [...new Set([...known.plan.members, ...people])];
+    // In place: groups.json and the manifest hold this same array.
+    for (const person of people) {
+      if (!known.plan.members.includes(person)) {
+        known.plan.members.push(person);
+      }
+    }
     return known;
   }
   const plan: ConversationPlan = {
@@ -460,7 +465,9 @@ function seriesHome(
     googleName: meeting.space.name,
     googleDisplayName: series,
     spaceType: 'SPACE',
-    members: people,
+    // A copy: it grows with each meeting, and the first meeting's own
+    // manifest entry keeps just that meeting's people.
+    members: [...people],
     creator: people[0] ?? '',
     created:
       Math.floor(Date.parse(meeting.space.raw.createTime ?? '') / 1000) || 0,

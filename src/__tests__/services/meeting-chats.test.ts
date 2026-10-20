@@ -104,10 +104,10 @@ describe('meeting chats', () => {
         ),
       ]
     );
-    // One person, a recurring series.
-    for (const [id, day] of [
-      ['MEET0staffa', 'Mar 3'],
-      ['MEET0staffb', 'Mar 10'],
+    // One person each, a recurring series; someone else the second week.
+    for (const [id, day, person] of [
+      ['MEET0staffa', 'Mar 3', USER_PASTOR],
+      ['MEET0staffb', 'Mar 10', USER_KEN],
     ]) {
       // biome-ignore lint/nursery/noAwaitInLoop: fixture setup.
       await addFixtureSpace(
@@ -117,12 +117,12 @@ describe('meeting chats', () => {
           `Staff meeting - ${day}`,
           `2025-03-${day === 'Mar 3' ? '03' : '10'}T15:00:00Z`
         ),
-        [USER_PASTOR],
+        [person],
         [
           message(
             id,
             `x${id}`,
-            USER_PASTOR,
+            person,
             `2025-03-${day === 'Mar 3' ? '03' : '10'}T15:10:00.000001Z`,
             'link to slides'
           ),
@@ -184,6 +184,17 @@ describe('meeting chats', () => {
       .flat()
       .filter((m) => m.username === 'Google Meet');
     expect(seriesHeaders).toHaveLength(2);
+    // groups.json carries everyone from every meeting in the series.
+    const seriesGroup = model.groups.find(
+      (g) => g.name === 'mtg-staff-meeting'
+    );
+    expect(seriesGroup?.members).toHaveLength(2);
+    expect(seriesGroup?.members).toEqual(series?.plan.members);
+    expect(
+      model.manifest.conversations[series?.plan.spaceId ?? ''].members
+    ).toEqual(seriesGroup?.members);
+    expect(model.manifest.conversations.MEET0staffa.members).toHaveLength(1);
+    expect(model.manifest.conversations.MEET0staffb.members).toHaveLength(1);
 
     const oneOnOne = model.conversations.filter((c) => c.plan.kind === 'dm');
     expect(oneOnOne.some((c) => c.messageCount === 2)).toBe(true);

@@ -71,6 +71,25 @@ export function importedChannels(
   );
 }
 
+/**
+ * A delta gives a private Space the full import's name and created time,
+ * but can't land in that channel, so a private channel matched in a delta
+ * may be the earlier import's, not this delta's. Says which to check by
+ * hand, or nothing when the build isn't a delta. Pure.
+ */
+export function deltaPrivateWarning(
+  manifest: ArchiveManifest,
+  matched: string[]
+): string | undefined {
+  const isDelta = Boolean(
+    manifest.options.messagesSince || manifest.options.firstSeenAfterRun
+  );
+  if (!isDelta || matched.length === 0) {
+    return;
+  }
+  return `   This is a delta build. ${matched.length} private channel(s) matched by name and created time may be the earlier import's channel, not this delta's; check by hand where the delta landed: ${matched.map((n) => `#${n}`).join(', ')}`;
+}
+
 /** Channels the manifest marks for archiving, with the ZIP's `created` by name. Pure. */
 export function archiveTargets(
   manifest: ArchiveManifest,

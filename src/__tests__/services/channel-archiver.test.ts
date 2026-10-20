@@ -12,6 +12,7 @@ import {
   archiveTargets,
   type ConnectedMember,
   createdByImport,
+  deltaPrivateWarning,
   importedChannels,
   pickArchivers,
   readArchiveCreated,
@@ -215,6 +216,24 @@ describe('archive-channels', () => {
       'gchat-old-team',
       'mtg-standup',
     ]);
+  });
+
+  it('names every private match in a delta build, and nothing otherwise', () => {
+    const manifest = (options: Partial<ArchiveManifest['options']>) =>
+      ({ options }) as unknown as ArchiveManifest;
+    expect(deltaPrivateWarning(manifest({}), ['gchat-old-x'])).toBeUndefined();
+    expect(
+      deltaPrivateWarning(
+        manifest({ messagesSince: '2026-10-01T00:00:00Z' }),
+        []
+      )
+    ).toBeUndefined();
+    expect(
+      deltaPrivateWarning(manifest({ firstSeenAfterRun: 'R1' }), [
+        'gchat-old-x',
+        'gchat-old-y',
+      ])
+    ).toContain('#gchat-old-x, #gchat-old-y');
   });
 
   it('reads the created time of every channel in the ZIP', async () => {

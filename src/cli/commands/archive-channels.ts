@@ -11,6 +11,7 @@ import {
   type ConnectedMember,
   channelsByName,
   createdByImport,
+  deltaPrivateWarning,
   importedChannels,
   pickArchivers,
   privateChannelsOf,
@@ -121,41 +122,64 @@ async function archiverFor(
   }
 }
 
+type Membership = Array<{
+  person: ConnectedMember;
+  channels: Awaited<ReturnType<typeof privateChannelsOf>>;
+}>;
+
+/**
+ * The imported private channels each connected person is in, and the target
+ * names someone holds whose created doesn't match (not the import's).
+ */
+async function importedMembership(
+  people: ConnectedMember[],
+  builtAt: string,
+  zipCreated: Map<string, number | undefined>
+): Promise<{ membership: Membership; mismatched: Set<string> }> {
+  const membership: Membership = [];
+  const mismatched = new Set<string>();
+  for (const person of people) {
+    // biome-ignore lint/nursery/noAwaitInLoop: one person's channel list at a time.
+    const all = await privateChannelsOf(person.client);
+    // Never a pre-existing channel that shares a name with an imported one.
+    const channels = importedChannels(all, builtAt, zipCreated);
+    for (const name of all.keys()) {
+      if (zipCreated.has(name) && !channels.has(name)) {
+        mismatched.add(name);
+      }
+    }
+    membership.push({ person, channels });
+  }
+  return { membership, mismatched };
+}
+
 /**
  * Archives each private channel with a connected member's token; returns
- * the ones left and the ones found already archived.
+ * the ones left and the ones matched to a Slack channel.
  */
 async function archivePrivate(
   targets: ArchiveTarget[],
   teamId: string,
   builtAt: string,
   dryRun: boolean
-): Promise<{ counts: Counts; left: string[]; already: string[] }> {
+): Promise<{ counts: Counts; left: string[]; matched: string[] }> {
   const people = await connectedArchivers(teamId);
   const zipCreated = new Map(targets.map((t) => [t.name, t.created]));
-  const membership: Array<{
-    person: ConnectedMember;
-    channels: Awaited<ReturnType<typeof privateChannelsOf>>;
-  }> = [];
-  for (const person of people) {
-    // biome-ignore lint/nursery/noAwaitInLoop: one person's channel list at a time.
-    const all = await privateChannelsOf(person.client);
-    // Never a pre-existing channel that shares a name with an imported one.
-    membership.push({
-      person,
-      channels: importedChannels(all, builtAt, zipCreated),
-    });
-  }
+  const { membership, mismatched } = await importedMembership(
+    people,
+    builtAt,
+    zipCreated
+  );
   const names = targets.map((t) => t.name);
   const picked = pickArchivers(names, membership);
   const counts: Counts = new Map();
   const left: string[] = [];
-  const already: string[] = [];
+  const matched: string[] = [];
   for (const name of names) {
     const choice = picked.get(name);
     let outcome: ArchiveOutcome | 'would-archive';
     if (!choice) {
-      outcome = 'needs-member';
+      outcome = mismatched.has(name) ? 'not-imported' : 'needs-member';
     } else if (dryRun) {
       outcome = choice.channel.isArchived ? 'already' : 'would-archive';
     } else {
@@ -163,32 +187,20 @@ async function archivePrivate(
       outcome = await archiveAsMember(choice.person.client, choice.channel);
     }
     tally(counts, outcome);
-    if (outcome === 'needs-member' || outcome === 'failed') {
+    if (!choice || outcome === 'failed') {
       left.push(name);
-    } else if (outcome === 'already') {
-      already.push(name);
+    }
+    if (choice) {
+      matched.push(name);
+    }
+    if (outcome === 'not-imported' || outcome === 'failed') {
+      console.warn(`   ${outcome}: #${name}`);
     }
   }
   console.log(
     `   ${people.length} connected people can archive private channels`
   );
-  return { counts, left, already };
-}
-
-/**
- * A delta reuses a private Space's name and created time, but can't land in
- * the full import's archived channel, so "already archived" may be that old
- * channel and not this delta's. Says which to check by hand.
- */
-function warnDeltaAlready(manifest: ArchiveManifest, already: string[]): void {
-  const isDelta = Boolean(
-    manifest.options.messagesSince || manifest.options.firstSeenAfterRun
-  );
-  if (isDelta && already.length > 0) {
-    console.warn(
-      `   ${already.length} private channel(s) were already archived. This is a delta build, so that may be the earlier import's channel; check by hand where the delta landed: ${already.map((n) => `#${n}`).join(', ')}`
-    );
-  }
+  return { counts, left, matched };
 }
 
 export const archiveChannelsCommand: CommandModule<
@@ -236,14 +248,17 @@ export const archiveChannelsCommand: CommandModule<
         dryRun
       );
       console.log(`Public channels: ${summary(publicCounts)}`);
-      const { counts, left, already } = await archivePrivate(
+      const { counts, left, matched } = await archivePrivate(
         targets.filter((t) => t.isPrivate),
         teamId,
         manifest.builtAt,
         dryRun
       );
       console.log(`Private channels: ${summary(counts)}`);
-      warnDeltaAlready(manifest, already);
+      const deltaWarning = deltaPrivateWarning(manifest, matched);
+      if (deltaWarning) {
+        console.warn(deltaWarning);
+      }
       const listPath = sidecarPath(zipPath, 'archive-private.txt');
       await writeFile(
         listPath,
