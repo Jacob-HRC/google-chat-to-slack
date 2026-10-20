@@ -253,8 +253,14 @@ The bot joins and archives each public channel marked for archiving (with
 `channels:manage`). It cannot join private channels, so each of those is
 archived with the token of a member who approved the app (the approval
 includes `groups:write`). Slack shows that member as having archived the
-channel. Only channels the import created are touched. Whatever no connected
-member can reach is listed in `hrc-full.archive-private.txt` for an admin.
+channel. Only channels the import created are touched. Slack keeps the
+`created` time the ZIP gives each channel (the Space's own, often years
+back), so a channel counts as the import's only when its `created` matches
+the ZIP's to the second. That was confirmed on private channels in the
+2026-10-20 channel test; the test had no public channel. If public channels
+come back `not-imported`, compare one's `created` with `channels.json` before
+archiving by hand. Whatever no connected member can reach is listed in
+`hrc-full.archive-private.txt` for an admin.
 
 Expect that list to be long. Only people already active in Slack can approve
 the app, and many private Spaces are left with only former staff, who are
@@ -295,6 +301,11 @@ first.
   pilot, build the full archive with `--exclude-space <id>` so it isn't
   imported twice. Whether Slack de-duplicates a re-imported DM isn't
   documented. Don't rely on it.
+- Reverse the `gchat-old-` channel test (`channel-test.zip`) before the full
+  import. Its channels carry the same names and created times as the full
+  build's, so archive-channels would find the test's archived copies and
+  report them `already`, and the full import's channels would clash with
+  them.
 - After a Reverse Import and a re-import of the same archive, the desktop app
   can keep showing the reversed copies of files as "This file was deleted".
   Reload the app (Cmd+Shift+R) before assuming anything is missing.
@@ -306,8 +317,10 @@ first.
   `gchat-old-<name>-2`, because the roster lists archived public channels as
   taken. A private one doesn't: the bot isn't in the imported private
   channels, so the roster can't see their names, and the delta reuses
-  `gchat-old-<name>`. What the importer does with that clash is untested, and
-  archive-channels won't match the result, so check and archive those by
-  hand.
+  `gchat-old-<name>`. What the importer does with that clash is untested.
+  The delta's channel has the same name and created time as the full
+  import's, so archive-channels finds the old, archived one and reports it
+  `already` (it warns when the build is a delta). Check where those deltas
+  landed and archive them by hand.
 - If a kept pilot was a Space, it was built without the prefix and isn't in
   the full manifest. Rename and archive its channel by hand.

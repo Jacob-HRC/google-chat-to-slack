@@ -42,19 +42,33 @@ export interface ChannelRef {
  * Only a channel the import created may be archived. Names are how imported
  * channels are found, and an older channel with the same name (one the bot
  * could not see at build time, or renamed since) must never be touched.
- * Slack keeps the ZIP's `created` to the second, so a channel whose
- * `created` matches the ZIP's is the imported one. A channel created after
- * the build counts too, for one the ZIP gave no time. Pure.
+ * Slack keeps the ZIP's `created` to the second, so when the ZIP gives a
+ * time, only a channel with exactly that `created` is the imported one; a
+ * namesake made after the build is not. Only when the ZIP gives no time
+ * does a channel created after the build count. Pure.
  */
 export function createdByImport(
   channel: ChannelRef,
   builtAt: string,
   zipCreated?: number
 ): boolean {
-  if (zipCreated && channel.created === zipCreated) {
-    return true;
+  if (zipCreated) {
+    return channel.created === zipCreated;
   }
   return channel.created * 1000 >= Date.parse(builtAt);
+}
+
+/** The channels in `all` the import created, by name. Pure. */
+export function importedChannels(
+  all: Map<string, ChannelRef>,
+  builtAt: string,
+  zipCreated: Map<string, number | undefined>
+): Map<string, ChannelRef> {
+  return new Map(
+    [...all].filter(([name, channel]) =>
+      createdByImport(channel, builtAt, zipCreated.get(name))
+    )
+  );
 }
 
 /** Channels the manifest marks for archiving, with the ZIP's `created` by name. Pure. */

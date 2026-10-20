@@ -12,6 +12,7 @@ import {
   archiveTargets,
   type ConnectedMember,
   createdByImport,
+  importedChannels,
   pickArchivers,
   readArchiveCreated,
 } from '../../services/channel-archiver';
@@ -185,50 +186,87 @@ describe('archive-channels', () => {
       false
     );
     expect(createdByImport(channel(0), builtAt, 0)).toBe(false);
+    // A namesake made after the build is not the import's when the ZIP gave a time.
+    const later = Date.parse('2026-10-20T09:00:00Z') / 1000;
+    expect(createdByImport(channel(later), builtAt, zipCreated)).toBe(false);
+    expect(createdByImport(channel(later), builtAt)).toBe(true);
+  });
+
+  it('keeps only the channels the import created, by name', () => {
+    const builtAt = '2026-10-19T14:50:03.573Z';
+    const later = Date.parse('2026-10-20T09:00:00Z') / 1000;
+    const ref = (id: string, created: number) => ({
+      id,
+      isArchived: false,
+      created,
+    });
+    const all = new Map([
+      ['gchat-old-team', ref('G1', 1_663_698_678)],
+      ['gchat-old-finance', ref('G2', later)],
+      ['mtg-standup', ref('G3', later)],
+      ['staff', ref('G4', 1_600_000_000)],
+    ]);
+    const zipCreated = new Map<string, number | undefined>([
+      ['gchat-old-team', 1_663_698_678],
+      ['gchat-old-finance', 1_646_155_577],
+      ['mtg-standup', undefined],
+    ]);
+    expect([...importedChannels(all, builtAt, zipCreated).keys()]).toEqual([
+      'gchat-old-team',
+      'mtg-standup',
+    ]);
   });
 
   it('reads the created time of every channel in the ZIP', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'archiver-'));
-    const zipPath = path.join(dir, 'a.zip');
-    const zip = new yazl.ZipFile();
-    zip.addBuffer(
-      Buffer.from(JSON.stringify([{ name: 'gchat-old-team', created: 100 }])),
-      'channels.json'
-    );
-    zip.addBuffer(
-      Buffer.from(
-        JSON.stringify([
-          { name: 'gchat-old-finance', created: 200 },
-          { name: 'no-time' },
-        ])
-      ),
-      'groups.json'
-    );
-    zip.addBuffer(
-      Buffer.from(JSON.stringify([{ name: 'gchat-old-team', created: 999 }])),
-      'gchat-old-team/channels.json'
-    );
-    zip.end();
-    await pipeline(zip.outputStream, createWriteStream(zipPath));
-    const created = await readArchiveCreated(zipPath);
-    expect([...created]).toEqual([
-      ['gchat-old-team', 100],
-      ['gchat-old-finance', 200],
-    ]);
-    expect(
-      archiveTargets(
+    try {
+      const zipPath = path.join(dir, 'a.zip');
+      const zip = new yazl.ZipFile();
+      zip.addBuffer(
+        Buffer.from(JSON.stringify([{ name: 'gchat-old-team', created: 100 }])),
+        'channels.json'
+      );
+      zip.addBuffer(
+        Buffer.from(
+          JSON.stringify([
+            { name: 'gchat-old-finance', created: 200 },
+            { name: 'no-time' },
+          ])
+        ),
+        'groups.json'
+      );
+      zip.addBuffer(
+        Buffer.from(JSON.stringify([{ name: 'gchat-old-team', created: 999 }])),
+        'gchat-old-team/channels.json'
+      );
+      zip.end();
+      await pipeline(zip.outputStream, createWriteStream(zipPath));
+      const created = await readArchiveCreated(zipPath);
+      expect([...created]).toEqual([
+        ['gchat-old-team', 100],
+        ['gchat-old-finance', 200],
+      ]);
+      expect(
+        archiveTargets(
+          {
+            conversations: {
+              A: conversation('gchat-old-team', 'channel', {
+                archiveAfterImport: true,
+              }),
+            },
+          } as unknown as ArchiveManifest,
+          created
+        )
+      ).toEqual([
         {
-          conversations: {
-            A: conversation('gchat-old-team', 'channel', {
-              archiveAfterImport: true,
-            }),
-          },
-        } as unknown as ArchiveManifest,
-        created
-      )
-    ).toEqual([
-      { spaceId: 'A', name: 'gchat-old-team', isPrivate: false, created: 100 },
-    ]);
-    await rm(dir, { recursive: true, force: true });
+          spaceId: 'A',
+          name: 'gchat-old-team',
+          isPrivate: false,
+          created: 100,
+        },
+      ]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
