@@ -14,6 +14,7 @@ import {
   messageIdentity,
   messageIdFromName,
   openStore,
+  reactionsOutOfDate,
   recordRunPointer,
   saveMessages,
   saveSpace,
@@ -210,6 +211,7 @@ describe('mergeMessages', () => {
       RUN_1
     );
     first.messages[1].reactionsFetchedRun = 'run1';
+    first.messages[1].reactionsFetchedHash = first.messages[1].contentHash;
     const second = mergeMessages(
       first.messages,
       [MSG_PLAIN, MSG_REPLY_WITH_REACTION],
@@ -307,6 +309,88 @@ describe('mergeMessages', () => {
     );
     expect(second.diff.reactionRefresh).toEqual([MSG_REPLY_WITH_REACTION.name]);
     expect(second.messages[0].reactionsFetchedRun).toBeUndefined();
+  });
+
+  it('repairs reactions older code left stale, once', () => {
+    const first = mergeMessages(
+      [],
+      [MSG_REPLY_WITH_REACTION],
+      'AAAAgeneral',
+      RUN_1
+    );
+    // Fetched by older code (no version recorded), and Google's summary now
+    // counts two reactions where one is stored: refetch.
+    first.messages[0].reactionsFetchedRun = 'run1';
+    first.messages[0].reactions = [
+      { user: USER_PASTOR, emoji: { unicode: '👋' } },
+    ] as (typeof first.messages)[0]['reactions'];
+    const stale = mergeMessages(
+      first.messages,
+      [MSG_REPLY_WITH_REACTION],
+      'AAAAgeneral',
+      RUN_2
+    );
+    expect(stale.diff.reactionRefresh).toEqual([MSG_REPLY_WITH_REACTION.name]);
+
+    // Once fetched for this version, a count that still differs (Google
+    // won't list some reactors) is accepted: no refetch loop.
+    first.messages[0].reactionsFetchedHash = first.messages[0].contentHash;
+    const settled = mergeMessages(
+      first.messages,
+      [MSG_REPLY_WITH_REACTION],
+      'AAAAgeneral',
+      RUN_2
+    );
+    expect(settled.diff.reactionRefresh).toEqual([]);
+    expect(settled.diff.changed).toBe(false);
+  });
+
+  it('keeps replaced reactions through a later edit, and leaves missing messages alone', () => {
+    const first = mergeMessages([], [MSG_PLAIN], 'AAAAgeneral', RUN_1);
+    first.messages[0].reactionHistory = [
+      { runId: 'run1', replacedAt: RUN_1.now, reactions: [] },
+    ];
+    const edited = mergeMessages(
+      first.messages,
+      [MSG_EDITED],
+      'AAAAgeneral',
+      RUN_2
+    );
+    expect(edited.messages[0].reactionHistory).toHaveLength(1);
+
+    const reacted = mergeMessages(
+      [],
+      [MSG_REPLY_WITH_REACTION],
+      'AAAAgeneral',
+      RUN_1
+    );
+    expect(
+      reactionsOutOfDate({ ...reacted.messages[0], missingSince: RUN_1.now })
+    ).toBe(false);
+  });
+
+  it('catches a stale emoji swap from older code, not only a wrong count', () => {
+    const first = mergeMessages(
+      [],
+      [MSG_REPLY_WITH_REACTION],
+      'AAAAgeneral',
+      RUN_1
+    );
+    // Google: two 👋. Stored by older code: two reactions, but one is a 👍.
+    first.messages[0].reactionsFetchedRun = 'run1';
+    first.messages[0].reactions = [
+      { user: USER_PASTOR, emoji: { unicode: '👋' } },
+      { user: 'users/2', emoji: { unicode: '👍' } },
+    ] as (typeof first.messages)[0]['reactions'];
+    const swapped = mergeMessages(
+      first.messages,
+      [MSG_REPLY_WITH_REACTION],
+      'AAAAgeneral',
+      RUN_2
+    );
+    expect(swapped.diff.reactionRefresh).toEqual([
+      MSG_REPLY_WITH_REACTION.name,
+    ]);
   });
 
   it('waits out a failed reaction fetch, then retries it', () => {

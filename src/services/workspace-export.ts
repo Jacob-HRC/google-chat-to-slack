@@ -61,6 +61,7 @@ import {
   openStore,
   reactionRetryDelayMs,
   reactionRetryDue,
+  reactionsOutOfDate,
   recordRunPointer,
   saveAttachmentIndex,
   saveDiscoveredSpaces,
@@ -705,8 +706,11 @@ async function fetchReactions(
     }
     try {
       const reactions = await listReactionsAs(readerSubject, name);
-      message.reactions = reactions.map(toStoredReaction);
+      const fresh = reactions.map(toStoredReaction);
+      keepReplacedReactions(message, fresh, ctx.runId);
+      message.reactions = fresh;
       message.reactionsFetchedRun = ctx.runId;
+      message.reactionsFetchedHash = message.contentHash;
       message.reactionFetchAttempts = undefined;
       message.reactionRetryAfter = undefined;
       return reactions.length;
@@ -724,6 +728,28 @@ async function fetchReactions(
     }
   });
   return results.reduce((sum, n) => sum + n, 0);
+}
+
+/**
+ * Moves the stored per-person reactions into `message.reactionHistory` when
+ * a fetch replaces them with a different set.
+ */
+export function keepReplacedReactions(
+  message: StoredMessage,
+  fresh: StoredReaction[],
+  runId: string
+): void {
+  const identity = (r: StoredReaction): string =>
+    `${r.user}|${r.emoji.unicode ?? r.emoji.customEmoji?.uid ?? ''}`;
+  const before = message.reactions.map(identity).sort().join(',');
+  const after = fresh.map(identity).sort().join(',');
+  if (message.reactions.length === 0 || before === after) {
+    return;
+  }
+  message.reactionHistory = [
+    ...(message.reactionHistory ?? []),
+    { runId, replacedAt: now(), reactions: message.reactions },
+  ];
 }
 
 function countAttachmentRecords(
@@ -947,12 +973,7 @@ function reactionsToFetch(merge: MergeResult, at: string): string[] {
 }
 
 function isPendingReaction(m: StoredMessage): boolean {
-  return (
-    ((m.raw.emojiReactionSummaries?.length ?? 0) > 0 ||
-      m.reactions.length > 0) &&
-    m.reactionsFetchedRun === undefined &&
-    !m.isDeleted
-  );
+  return reactionsOutOfDate(m);
 }
 
 /**
@@ -962,6 +983,9 @@ function isPendingReaction(m: StoredMessage): boolean {
 export function pendingReactions(messages: StoredMessage[]): string[] {
   return messages.filter(isPendingReaction).map((m) => m.name);
 }
+
+/** Bump when the rules for counting pending reactions change. */
+export const REACTIONS_COUNT_VERSION = 3;
 
 export interface PendingReactions {
   /** Messages with reactions not yet fetched. */
@@ -996,7 +1020,10 @@ async function storedReactionsPending(
   spaceId: string,
   state: SpaceSyncState
 ): Promise<PendingReactions> {
-  if (state.reactionsPending !== undefined) {
+  if (
+    state.reactionsPending !== undefined &&
+    state.reactionsCountVersion === REACTIONS_COUNT_VERSION
+  ) {
     return { pending: state.reactionsPending, dueAt: state.reactionsDueAt };
   }
   const summary = summarizePendingReactions(
@@ -1008,6 +1035,7 @@ async function storedReactionsPending(
       ...state,
       reactionsPending: summary.pending,
       reactionsDueAt: summary.dueAt,
+      reactionsCountVersion: REACTIONS_COUNT_VERSION,
     });
   }
   return summary;
@@ -1225,6 +1253,7 @@ async function syncSpace(
   const reactions = summarizePendingReactions(merge.messages, now());
   state.reactionsPending = reactions.pending;
   state.reactionsDueAt = reactions.dueAt;
+  state.reactionsCountVersion = REACTIONS_COUNT_VERSION;
   await saveState(store, state);
 
   result.durationMs = Date.now() - started;
@@ -1255,6 +1284,7 @@ async function syncSpaceSafely(
         listedThrough: previous?.listedThrough,
         reactionsPending: previous?.reactionsPending,
         reactionsDueAt: previous?.reactionsDueAt,
+        reactionsCountVersion: previous?.reactionsCountVersion,
         messageCount: previous?.messageCount ?? 0,
         deletedCount: previous?.deletedCount ?? 0,
         missingCount: previous?.missingCount ?? 0,

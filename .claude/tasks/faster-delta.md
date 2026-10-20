@@ -244,3 +244,43 @@ recorded runs other than the current one (`earlierRuns`), so a clock stepped
 back can't make the current run's start the bound. Informational, by design:
 messages with stored reactions that a full listing no longer returns keep
 retrying weekly.
+
+Codex round 3 (2026-10-19): request changes, one P1, reproduced: a state
+written by the intermediate capped build (b5217e2) holds `reactionsPending`
+counted under the cap, and the new code trusted it. That build never wrote
+to the real store (no state.json has the field; checked), but counts now
+carry `reactionsCountVersion` and any other version is recounted from the
+stored messages. Test: a capped-era count of 0 is recounted and the
+reaction fetched.
+
+Post-Codex-r3 Claude review (2026-10-19): nothing at medium or above in the
+change; two pre-existing low items. One mattered for real data: older code
+kept stale per-person reactions after a reaction was removed (never
+refetched) or a refetch failed (kept the old stamp). Measured on the store:
+697 of 57,434 messages with reactions disagree with Google's summary, in 57
+conversations, all edited after their first fetch (433 have one reaction
+too many). Fixed: `reactionsFetchedHash` records the content version the
+reactions were fetched for; `reactionsOutOfDate` treats reactions as pending
+when never fetched, fetched for an older version, or (no version recorded)
+when the count disagrees with the summary, so a single refetch settles it
+without loops. `REACTIONS_COUNT_VERSION` 3 makes every conversation recount
+once, so those 57 are visited and repaired whatever the window.
+Left as a follow-up (pre-existing, tiny reach): a Vault delta import
+overwrites a part-way API state as complete (vault-import/importer.ts).
+
+Full review after the stale-reaction repair (2026-10-19): no data-loss
+path, no loops (re-hash, edits, deletions, Vault, settle-after-one-fetch all
+reproduced clean). Fixed: the older-data check compares per emoji, so a
+stale swap with the same total is caught; a fetch that replaces a different
+per-person set keeps the old one in `reactionHistory` (the store never
+discards), which matters for the 697 repairs (433 drop one reaction Google
+no longer shows). The Slack archive still uses `reactions`, i.e. what Google
+shows now.
+
+Quick pass on the last two changes (2026-10-19): one medium, fixed —
+`applyUpdate` rebuilt the message without `reactionHistory`, so a later edit
+wiped it; it is now carried. Lows fixed: messages marked `missingSince` are
+never reaction-pending (the fetch would only fail, forever); a re-hash moves
+`reactionsFetchedHash` along when it pointed at the old hash. Real store:
+the per-emoji check flags 762 messages in 58 conversations (65 same-total
+swaps beyond the 697 count mismatches).

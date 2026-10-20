@@ -465,6 +465,34 @@ describe('exportWorkspace deltas', () => {
     expect(state.reactionsPending).toBe(0);
   });
 
+  it('recounts a pending-reaction count written under other rules', async () => {
+    chat.listMessagesAs.mockResolvedValue([MSG_PLAIN, MSG_REPLY_WITH_REACTION]);
+    await exportWorkspace(options());
+    // As an intermediate build left it: retries capped, the capped message
+    // counted as done, so the count says 0 though reactions are missing.
+    const file = messagesPath(root, 'AAAAgeneral');
+    const stored = await readJson<Record<string, unknown>[]>(file);
+    await writeFile(
+      file,
+      JSON.stringify(
+        stored.map((m) =>
+          m.name === MSG_REPLY_WITH_REACTION.name
+            ? { ...m, reactionsFetchedRun: undefined, reactionFetchAttempts: 3 }
+            : m
+        )
+      )
+    );
+    await patchState({ reactionsPending: 0, reactionsCountVersion: undefined });
+    chat.listReactionsAs.mockClear();
+    chat.listMessagesAs.mockResolvedValue([]);
+    const report = await exportWorkspace(options({ since: SINCE }));
+    expect(report.totals.spacesSkipped).toBe(0);
+    expect(chat.listReactionsAs).toHaveBeenCalledWith(
+      'pastor@example.com',
+      MSG_REPLY_WITH_REACTION.name
+    );
+  });
+
   it('does not skip an older state whose messages hold unfetched reactions', async () => {
     chat.listMessagesAs.mockResolvedValue([MSG_PLAIN, MSG_REPLY_WITH_REACTION]);
     await exportWorkspace(options());

@@ -180,6 +180,20 @@ export interface StoredMessage {
   links: ExtractedLink[];
   reactions: StoredReaction[];
   reactionsFetchedRun?: string;
+  /**
+   * `contentHash` when the reactions were last fetched. Reaction summaries
+   * are part of the hash, so a difference means the reactions changed since.
+   */
+  reactionsFetchedHash?: string;
+  /**
+   * Per-person reactions a later fetch replaced (removed or changed in
+   * Google), kept because the store never discards what it once held.
+   */
+  reactionHistory?: Array<{
+    runId: string;
+    replacedAt: string;
+    reactions: StoredReaction[];
+  }>;
   /** Failed reaction fetches since the last success. */
   reactionFetchAttempts?: number;
   /** After a failed fetch, when the next attempt is due (backing off). */
@@ -234,6 +248,12 @@ export interface SpaceSyncState {
   reactionsPending?: number;
   /** When the earliest pending reaction fetch is due (now, if not backing off). */
   reactionsDueAt?: string;
+  /**
+   * The rules `reactionsPending` was counted under. A count from other rules
+   * (an intermediate build capped retries and counted capped messages as
+   * done) is recounted from the stored messages.
+   */
+  reactionsCountVersion?: number;
   error?: string;
 }
 

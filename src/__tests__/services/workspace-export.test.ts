@@ -10,6 +10,7 @@ import {
   dedupeDiscoveredSpaces,
   deriveSpaceName,
   isInactiveSince,
+  keepReplacedReactions,
   legacyCoverage,
   listingCutoff,
   matchesSpaceFilter,
@@ -373,7 +374,13 @@ describe('pendingReactions', () => {
   it('lists messages with reactions and no successful fetch, never giving up', () => {
     expect(pendingReactions([message])).toEqual([message.name]);
     expect(
-      pendingReactions([{ ...message, reactionsFetchedRun: 'run1' }])
+      pendingReactions([
+        {
+          ...message,
+          reactionsFetchedRun: 'run1',
+          reactionsFetchedHash: message.contentHash,
+        },
+      ])
     ).toEqual([]);
     // However often a fetch failed, the reactions exist in Google.
     expect(
@@ -402,5 +409,34 @@ describe('pendingReactions', () => {
       )
     ).toEqual({ pending: 2, dueAt: '2026-10-20T00:00:00.000Z' });
     expect(summarizePendingReactions([message], at).dueAt).toBe(at);
+  });
+});
+
+describe('keepReplacedReactions', () => {
+  const base = toStoredMessage(
+    MSG_REPLY_WITH_REACTION,
+    'AAAAgeneral',
+    'run1',
+    '2026-09-01T00:00:00.000Z'
+  );
+  const thumbs = {
+    user: USER_PASTOR,
+    emoji: { unicode: '👍' },
+    raw: {},
+  };
+  const heart = { ...thumbs, emoji: { unicode: '❤️' } };
+
+  it('keeps a replaced set, and nothing when unchanged or empty', () => {
+    const message = { ...base, reactions: [thumbs] };
+    keepReplacedReactions(message, [thumbs], 'run2');
+    expect(message.reactionHistory).toBeUndefined();
+    keepReplacedReactions(message, [heart], 'run2');
+    expect(message.reactionHistory?.[0]).toMatchObject({
+      runId: 'run2',
+      reactions: [thumbs],
+    });
+    const empty = { ...base, reactions: [] };
+    keepReplacedReactions(empty, [heart], 'run2');
+    expect(empty.reactionHistory).toBeUndefined();
   });
 });

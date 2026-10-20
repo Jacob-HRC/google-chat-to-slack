@@ -541,6 +541,7 @@ function applyUpdate(
     // old values until then so nothing disappears if the run stops early.
     reactions: existing.reactions,
     reactionsFetchedRun: existing.reactionsFetchedRun,
+    reactionHistory: existing.reactionHistory,
     attachmentKeys: existing.attachmentKeys,
     history: [
       ...existing.history,
@@ -571,6 +572,53 @@ export function reactionRetryDelayMs(attempts: number): number {
   );
 }
 
+/**
+ * Whether a message's stored per-person reactions may not match Google:
+ * never fetched, or fetched for an earlier version of the message. Messages
+ * fetched before that version was recorded use a count that disagrees with
+ * Google's summary instead (older code kept stale reactions after a removal
+ * or a failed refetch); one refetch then records the version. Pure.
+ */
+export function reactionsOutOfDate(message: StoredMessage): boolean {
+  const summaries = message.raw.emojiReactionSummaries ?? [];
+  // Not for messages Google no longer returns: the fetch would only fail.
+  if (
+    message.isDeleted ||
+    message.missingSince ||
+    (summaries.length === 0 && message.reactions.length === 0)
+  ) {
+    return false;
+  }
+  if (message.reactionsFetchedRun === undefined) {
+    return true;
+  }
+  if (message.reactionsFetchedHash !== undefined) {
+    return message.reactionsFetchedHash !== message.contentHash;
+  }
+  // Per emoji, so a stale swap (👍 stored, ❤️ in Google) is caught too.
+  const expected = new Map<string, number>();
+  for (const s of summaries) {
+    const key = emojiKey(s.emoji ?? {});
+    expected.set(key, (expected.get(key) ?? 0) + (s.reactionCount ?? 0));
+  }
+  const stored = new Map<string, number>();
+  for (const r of message.reactions) {
+    const key = emojiKey(r.emoji);
+    stored.set(key, (stored.get(key) ?? 0) + 1);
+  }
+  return (
+    expected.size !== stored.size ||
+    Array.from(expected).some(([key, n]) => stored.get(key) !== n)
+  );
+}
+
+function emojiKey(emoji: {
+  unicode?: string | null;
+  customEmoji?: { uid?: string | null } | null;
+}): string {
+  return emoji.unicode ?? `custom:${emoji.customEmoji?.uid ?? ''}`;
+}
+
 /** Whether a failed reaction fetch may be retried at `now`. Pure. */
 export function reactionRetryDue(message: StoredMessage, now: string): boolean {
   return (
@@ -588,13 +636,10 @@ function mergeUnchanged(
   diff: MergeDiff
 ): StoredMessage {
   diff.unchanged += 1;
-  // Also when reactions are stored but the last fetch failed (all removed).
   // Never for a deleted message: Google returns nothing worth keeping.
   const needsReactions =
-    (hasReactions(fetched) || existing.reactions.length > 0) &&
-    existing.reactionsFetchedRun === undefined &&
+    reactionsOutOfDate(existing) &&
     reactionRetryDue(existing, options.now) &&
-    !existing.isDeleted &&
     !fetched.deleteTime;
   if (needsReactions) {
     diff.reactionRefresh.push(existing.name);
@@ -606,6 +651,12 @@ function mergeUnchanged(
   return {
     ...existing,
     contentHash,
+    // A re-hash (new hashing rules, same content) doesn't make fetched
+    // reactions stale.
+    reactionsFetchedHash:
+      existing.reactionsFetchedHash === existing.contentHash
+        ? contentHash
+        : existing.reactionsFetchedHash,
     lastSeenRun: options.runId,
     lastSeenAt: options.now,
     missingSince: undefined,
@@ -663,6 +714,7 @@ function mergeOne(
   return {
     ...applyUpdate(existing, fetched, options),
     reactionsFetchedRun: undefined,
+    reactionsFetchedHash: undefined,
     reactionFetchAttempts: undefined,
     reactionRetryAfter: undefined,
   };
