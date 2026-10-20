@@ -7,6 +7,7 @@ import type { WebClient } from '@slack/web-api';
 import { describe, expect, it } from 'vitest';
 import yazl from 'yazl';
 import {
+  adminListLine,
   archiveAsMember,
   archivePublicChannel,
   archiveTargets,
@@ -289,11 +290,21 @@ describe('archive-channels', () => {
         zipCreated,
         true
       );
+      // Unreached names too: the channel by that name is likely the old one.
       expect(decisions.map((d) => d.action)).toEqual([
         'check-delta',
         'not-imported',
-        'needs-member',
+        'check-delta',
       ]);
+    });
+
+    it('gives the admin the created time to check each name against', () => {
+      expect(adminListLine('gchat-old-board', 1_600_000_000)).toBe(
+        'gchat-old-board\tcreated 2020-09-13T12:26:40.000Z'
+      );
+      expect(adminListLine('gchat-old-mtg-x')).toBe(
+        'gchat-old-mtg-x\tcreated after the build'
+      );
     });
   });
 

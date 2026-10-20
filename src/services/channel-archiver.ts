@@ -255,9 +255,10 @@ export type PrivateDecision =
  *   doesn't match, so it is not the import's and must not be archived, by
  *   the tool or by an admin working from the list.
  * - `needs-member`: nobody connected holds it.
- * - `check-delta`: a delta build matched it. A delta reuses a private
- *   Space's name and created time but can't land in the earlier import's
- *   channel, so the match is likely that older channel; never archived here.
+ * - `check-delta`: a delta build, whether matched or not. A delta reuses a
+ *   private Space's name and created time but can't land in the earlier
+ *   import's channel, so the channel by that name is likely that older one;
+ *   never archived here, nor put on the admin list.
  */
 export function planPrivateArchives(
   names: string[],
@@ -274,16 +275,27 @@ export function planPrivateArchives(
   const picked = pickArchivers(names, membership);
   return names.map((name): PrivateDecision => {
     const choice = picked.get(name);
-    if (choice) {
-      return isDelta
-        ? { name, action: 'check-delta' }
-        : { name, action: 'archive', ...choice };
+    if (heldNames.has(name) && !choice) {
+      return { name, action: 'not-imported' };
     }
-    return {
-      name,
-      action: heldNames.has(name) ? 'not-imported' : 'needs-member',
-    };
+    if (isDelta) {
+      return { name, action: 'check-delta' };
+    }
+    return choice
+      ? { name, action: 'archive', ...choice }
+      : { name, action: 'needs-member' };
   });
+}
+
+/**
+ * One line of the admin list: the name and the created time the imported
+ * channel has, so the admin can tell it from a namesake before archiving.
+ * Pure.
+ */
+export function adminListLine(name: string, created?: number): string {
+  return created
+    ? `${name}\tcreated ${new Date(created * 1000).toISOString()}`
+    : `${name}\tcreated after the build`;
 }
 
 /** Archives a private channel with a member's own token. */

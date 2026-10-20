@@ -6,6 +6,7 @@ import type { CommandModule } from 'yargs';
 import {
   type ArchiveOutcome,
   type ArchiveTarget,
+  adminListLine,
   archiveAsMember,
   archivePublicChannel,
   archiveTargets,
@@ -242,9 +243,10 @@ export const archiveChannelsCommand: CommandModule<
         );
       }
       const listPath = sidecarPath(zipPath, 'archive-private.txt');
+      const createdOf = new Map(targets.map((t) => [t.name, t.created]));
       await writeFile(
         listPath,
-        left.length ? `${left.join('\n')}\n` : '',
+        left.map((n) => `${adminListLine(n, createdOf.get(n))}\n`).join(''),
         'utf-8'
       );
       console.log(

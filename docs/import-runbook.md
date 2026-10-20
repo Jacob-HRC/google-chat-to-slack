@@ -269,7 +269,11 @@ A channel by the right name whose `created` doesn't match is reported
 not put on the admin list. If many come back that way, compare one's
 `created` with `channels.json` or `groups.json` before doing anything by
 hand. Private channels no connected member is in are listed in
-`hrc-full.archive-private.txt` for an admin.
+`hrc-full.archive-private.txt` for an admin, each with the `created` time
+the imported channel has. Slack channel names are unique, so the channel
+under a listed name may be an older namesake rather than the import's:
+before archiving one by hand, check that its creation date in Slack matches
+the list.
 
 Expect that list to be long. Only people already active in Slack can approve
 the app, and many private Spaces are left with only former staff, who are
@@ -329,7 +333,12 @@ first.
   `gchat-old-<name>`. What the importer does with that clash is untested.
   The delta's channel has the same name and created time as the full
   import's, so archive-channels would find the old one. For a delta build it
-  never archives a private channel: it reports each match `check-delta` and
-  lists them. Check where those deltas landed and archive them by hand.
+  never archives a private channel and puts none on the admin list: it
+  reports each `check-delta` (or `not-imported` for a namesake) and lists
+  them. Check where those deltas landed and archive them by hand.
+- Take a fresh `slack-members` roster after the full import and before
+  building a delta. The `-2` naming for public deltas depends on the roster
+  listing the full import's channels; with an older roster the delta reuses
+  the name and archive-channels matches the old channel instead.
 - If a kept pilot was a Space, it was built without the prefix and isn't in
   the full manifest. Rename and archive its channel by hand.
