@@ -585,3 +585,45 @@ Pilot left in place for now; reverse before the full import.
 - restore-reactions: 129 + 151 added. 273/279 lines removed; 6 file-only messages
   failed with `no_text` → fixed in e382beb (chat.update with file_ids).
 - Tokens from slack-connect are the same per user+app as the install token.
+
+## First full import build (2026-11-02)
+
+- Delta: `export-workspace --since 30d` (run 20261102T200239Z) hit a DNS
+  outage on the T3 box: 143 conversations failed with `EAI_AGAIN`. The
+  run's "in store" total fell 468,000 → 421,066, which is exactly
+  +3,732 new minus the 50,666 messages held by the failed conversations
+  (the total only counts conversations the run reached). The retry
+  (20261102T205759Z) had 0 failures: +979, total 472,711.
+- Vault: nothing to do. The 122 unreachable Spaces are the 96 Vault Spaces
+  (already stored), 25 Meet chats nobody posted in, and one Space whose
+  messages are already stored. `vault delta --dry-run` calls all 96 "never
+  exported" because Vault deletes exports after ~15 days, so the matter no
+  longer shows the Sep 22 export. Don't run it for real on that basis.
+- 7 new Spaces in channel-visibility.csv (6 suggested public). Roster: 8
+  active (one new member). 5 new large files staged to Drive.
+- The first real build was OOM-killed (exit 137, 9.9 GB RSS): the writer
+  rendered every day file to a string and then a Buffer before writing.
+  `writer.ts` now renders each entry on demand via yazl's
+  `addReadStreamLazy`. Peak 3.4 GB, 80 s.
+- Funnel 8443 failed TLS through one of the two ingress relays
+  (209.177.145.192 / 2607:f740:f::67) every time; port 10000 works through
+  all four. The archive is built with
+  `--files-base-url https://server.tail3620c0.ts.net:10000/<token>`, and
+  8443 is back to its previous tailnet-only mapping. Before handing over a
+  ZIP, test a file URL through every relay IP (`dig @1.1.1.1`, then
+  `curl --resolve`), from off the tailnet.
+- Archive: data/slack-archive/hrc-full.zip (89 MB), in Jacob's Drive as
+  `slack-import-hrc-full-2026-11-02.zip`. 138 people (13 merge, 125
+  deactivated, 0 without address), 115 public + 254 private channels, 1,965
+  DMs, 4,512 group DMs, 486,398 messages, 47,557 hosted files (54.6 GB).
+  At the pilot's fetch rate (~0.37 MB/s) the import needs 1.5–2 days with
+  serve-files up.
+- Names: Slack's importer names every account it creates with a slug of the
+  person's name ("Pat Smith" → `pat_smith` in full, display and first
+  name, last name empty), whatever users.json carries. A test ZIP with
+  `first_name`/`last_name` in the profile (and one with a blank display
+  name) came out the same (`alpha_namefix`, `bravo_van_namefix`). The fix is
+  after the import: Jacob's user token now has `users.profile:write`, and
+  `users.profile.set` with `user=<id>` renamed both deactivated test
+  accounts. Next: a command that renames every account the import created
+  from the manifest, only while its name is still the slug.

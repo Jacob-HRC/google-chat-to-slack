@@ -5,6 +5,7 @@
 import { createWriteStream } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { ZipFile } from 'yazl';
 import type {
@@ -15,9 +16,15 @@ import type {
 } from '../../types/slack-export';
 import { kindLabel } from './messages';
 
+/**
+ * One file of the archive. The content is rendered on demand: a full build
+ * holds hundreds of thousands of messages, and serialising every day file up
+ * front kept two copies of the archive in memory (the strings, then the
+ * buffers handed to the ZIP writer), which the kernel killed on the T3 box.
+ */
 export interface ArchiveEntry {
   path: string;
-  content: string;
+  render: () => string;
 }
 
 export interface WriteArchiveOptions {
@@ -45,12 +52,12 @@ function json(value: unknown): string {
  */
 export function archiveEntries(model: ArchiveModel): ArchiveEntry[] {
   const entries: ArchiveEntry[] = [
-    { path: 'users.json', content: json(model.users) },
-    { path: 'channels.json', content: json(model.channels) },
-    { path: 'groups.json', content: json(model.groups) },
-    { path: 'dms.json', content: json(model.dms) },
-    { path: 'mpims.json', content: json(model.mpims) },
-    { path: 'integration_logs.json', content: json([]) },
+    { path: 'users.json', render: () => json(model.users) },
+    { path: 'channels.json', render: () => json(model.channels) },
+    { path: 'groups.json', render: () => json(model.groups) },
+    { path: 'dms.json', render: () => json(model.dms) },
+    { path: 'mpims.json', render: () => json(model.mpims) },
+    { path: 'integration_logs.json', render: () => json([]) },
   ];
   const sorted = [...model.conversations].sort((a, b) =>
     a.plan.name.localeCompare(b.plan.name)
@@ -60,7 +67,7 @@ export function archiveEntries(model: ArchiveModel): ArchiveEntry[] {
     for (const day of days) {
       entries.push({
         path: `${conversation.plan.name}/${day}.json`,
-        content: json(conversation.days[day]),
+        render: () => json(conversation.days[day]),
       });
     }
   }
@@ -106,28 +113,28 @@ export function messageIndex(model: ArchiveModel): MessageIndexConversation[] {
  */
 export function sidecarEntries(model: ArchiveModel): ArchiveEntry[] {
   const entries: ArchiveEntry[] = [
-    { path: 'archive-manifest.json', content: json(model.manifest) },
+    { path: 'archive-manifest.json', render: () => json(model.manifest) },
     {
       path: 'message-index.json',
-      content: JSON.stringify(messageIndex(model)),
+      render: () => JSON.stringify(messageIndex(model)),
     },
   ];
   if (model.memberSnapshot) {
     // verify-slack diffs against this, even if members.json is refreshed later.
     entries.push({
       path: 'members-before.json',
-      content: json(model.memberSnapshot),
+      render: () => json(model.memberSnapshot),
     });
   }
   if (model.manifest.files.strategy === 'manifest') {
     entries.push({
       path: 'files-to-upload.json',
-      content: json(model.uploads),
+      render: () => json(model.uploads),
     });
   } else {
     entries.push({
       path: 'hosted-files.json',
-      content: json(model.hostedFiles),
+      render: () => json(model.hostedFiles),
     });
   }
   return entries;
@@ -145,10 +152,11 @@ async function writeZip(
 ): Promise<void> {
   await mkdir(path.dirname(zipPath), { recursive: true });
   const zip = new ZipFile();
+  const mtime = new Date();
   for (const entry of entries) {
-    zip.addBuffer(Buffer.from(entry.content, 'utf-8'), entry.path, {
-      mtime: new Date(),
-      mode: 0o644,
+    // yazl asks for one entry at a time, so only one rendered file is held.
+    zip.addReadStreamLazy(entry.path, { mtime, mode: 0o644 }, (cb) => {
+      cb(null, Readable.from([Buffer.from(entry.render(), 'utf-8')]));
     });
   }
   zip.end();
@@ -163,7 +171,7 @@ async function writeUnpacked(
     const target = path.join(dir, entry.path);
     // biome-ignore lint/nursery/noAwaitInLoop: sequential writes keep directory creation simple.
     await mkdir(path.dirname(target), { recursive: true });
-    await writeFile(target, entry.content, 'utf-8');
+    await writeFile(target, entry.render(), 'utf-8');
   }
 }
 
@@ -180,7 +188,7 @@ export async function writeArchive(
     for (const sidecar of sidecars) {
       const target = sidecarPath(zipPath, sidecar.path);
       // biome-ignore lint/nursery/noAwaitInLoop: a handful of small files.
-      await writeFile(target, sidecar.content, 'utf-8');
+      await writeFile(target, sidecar.render(), 'utf-8');
       sidecarPaths.push(target);
     }
   }
