@@ -79,7 +79,7 @@ Pick a random path segment so nobody can guess the file URLs:
 
 ```bash
 TOKEN=$(openssl rand -hex 16)
-BASE="https://server.tail3620c0.ts.net:8443/$TOKEN"
+BASE="https://server.tail3620c0.ts.net:10000/$TOKEN"
 
 node --max-old-space-size=6144 -r ts-node/register bin/googletoslack.ts \
   build-slack-archive \
@@ -132,11 +132,25 @@ Beside the ZIP you get `hrc-full.archive-manifest.json`,
 pnpm start serve-files --hosted-files data/slack-archive/hrc-full.hosted-files.json --check-only
 pnpm start serve-files --hosted-files data/slack-archive/hrc-full.hosted-files.json
 # in another terminal:
-tailscale funnel --bg --https=8443 http://127.0.0.1:8787
+tailscale funnel --bg --https=10000 http://127.0.0.1:8787
 ```
 
-Use port 8443, not 443. Port 443 on this box carries T3 Code, and turning
-Funnel on there would publish it.
+Use port 8443 or 10000, never 443. Port 443 on this box carries T3 Code,
+and turning Funnel on there would publish it. The port is part of every file
+URL, so pick it before the build. On 2026-11-02 one of Funnel's two ingress
+relays failed TLS on 8443 while 10000 worked through both, so the full
+build uses 10000.
+
+Check every relay from off the tailnet, because Slack can reach either one,
+and a failed fetch loses the whole message, text included:
+
+```bash
+for ip in $(dig +short @1.1.1.1 server.tail3620c0.ts.net A AAAA); do
+  [[ $ip == *:* ]] && ip="[$ip]"
+  curl -s -o /dev/null -w "$ip %{http_code} %{size_download}\n" \
+    --resolve "server.tail3620c0.ts.net:10000:$ip" "<url from hosted-files.json>"
+done
+```
 
 Check one URL from outside (a phone off Wi-Fi works): copy any `url` from
 `hosted-files.json` into a browser. The file should download.
@@ -183,7 +197,7 @@ beside the ZIP as `hrc-full.verify-<time>.json`.
 Then turn Funnel off and stop the server:
 
 ```bash
-tailscale funnel --https=8443 off
+tailscale funnel --https=10000 off
 ```
 
 ## 6. After the announcement: restore reactions
