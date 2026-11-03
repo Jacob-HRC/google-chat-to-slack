@@ -627,3 +627,25 @@ Pilot left in place for now; reverse before the full import.
   `users.profile.set` with `user=<id>` renamed both deactivated test
   accounts. Next: a command that renames every account the import created
   from the manifest, only while its name is still the slug.
+
+### The full import lost every file message
+
+- Slack reported the import complete within hours. `verify-slack` found
+  every person landed as planned and every new account deactivated. In the
+  459 conversations Jacob's token can read, the only messages missing were
+  the 5,794 that carried a file (plus one more). Across the archive that is
+  43,961 messages, about 9%. serve-files logged no request from Slack.
+- Cause: the ZIP was built in a second checkout (`gcts-lazyzip`, whose
+  `data/` links to the same store), while the store's `localPath`s point
+  under `~/projects/gcts`. `hostedUrl` turned that into
+  `/<token>/../../../../../gcts/…`. Sent as written, those URLs return 404,
+  and resolving the `..` drops the token. The pre-handover relay check
+  passed only because curl resolves `..` by default.
+- Fix: `hostedUrl` throws when a file sits outside `filesRoot` (test builds
+  through a symlinked store). The runbook says to build from the export's
+  checkout and checks URLs with `curl --path-as-is`, copied from the ZIP.
+  `verify-slack`'s report lists at most 20 ts per conversation, so totals
+  come from `counts`.
+- Jacob reversed the import. A test ZIP (a private channel with Jacob and a
+  test account; a clean URL on 10000, a clean URL on 8443, a dotted URL on
+  10000) settles the port before the rebuild from `~/projects/gcts`.

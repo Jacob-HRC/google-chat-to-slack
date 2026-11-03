@@ -224,15 +224,31 @@ function mimeTypeOf(record: AttachmentRecord): string {
   return IMAGE_MIME_BY_EXTENSION[filetypeOf(record)] ?? GENERIC_MIME;
 }
 
+/** True when a relative path climbs out of its root (`..`, `../x`) or is absolute. */
+function leavesRoot(relative: string): boolean {
+  return (
+    relative === '..' ||
+    relative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relative)
+  );
+}
+
 function hostedUrl(
   record: AttachmentRecord,
   options: MessageBuildOptions
 ): string {
-  const relative = path
-    .relative(options.filesRoot, record.localPath ?? '')
-    .split(path.sep)
-    .map(encodeURIComponent)
-    .join('/');
+  const local = record.localPath ?? '';
+  const fromRoot = path.relative(options.filesRoot, local);
+  // The store records absolute paths from the checkout that exported it. A
+  // build run elsewhere (another worktree, even one whose data/ is a symlink
+  // to the same store) would write `/<token>/../../…` URLs: Slack fetches none
+  // of them, and resolving the `..` drops the token.
+  if (leavesRoot(fromRoot)) {
+    throw new Error(
+      `${local} is outside ${options.filesRoot}, so its hosted URL would contain "..". Build from the checkout that ran the export.`
+    );
+  }
+  const relative = fromRoot.split(path.sep).map(encodeURIComponent).join('/');
   const base = (options.filesBaseUrl ?? '').replace(TRAILING_SLASHES_REGEX, '');
   return `${base}/${relative}`;
 }
