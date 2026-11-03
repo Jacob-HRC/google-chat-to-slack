@@ -649,3 +649,27 @@ Pilot left in place for now; reverse before the full import.
 - Jacob reversed the import. A test ZIP (a private channel with Jacob and a
   test account; a clean URL on 10000, a clean URL on 8443, a dotted URL on
   10000) settles the port before the rebuild from `~/projects/gcts`.
+
+### Slack stopped fetching from Tailscale Funnel; files move to Cloudflare
+
+- Test 1 (2026-11-03, a private channel with Jacob and a test account): a
+  clean URL on 10000, a clean URL on 8443 and a dotted URL. The channel came
+  in, but none of its messages did, and serve-files saw no request from
+  Slack. Slack had fetched from the same ts.net host on 2026-09-28 and
+  2026-10-20, with plain IPv4 GETs from AWS.
+- Test 2: a public Wikimedia image (control), the same server through a
+  Cloudflare quick tunnel, and ts.net:8443. The first two arrived, and Slack
+  fetched the tunnel file once. The ts.net message was dropped again with no
+  request.
+- Hosting is now a named Cloudflare tunnel, `gcts-slack-files`, at
+  `slack-files.hrcstats.com` (zone on the church's Cloudflare account). It
+  runs as a user systemd unit that restarts by itself, and anything but
+  127.0.0.1:8787 gets a 404. Test 3 (an image and a 25 MB file through it)
+  imported both files at full size. Funnel 8443 and 10000 are off.
+- `build-slack-archive --plain-mentions` writes mentions as `@Name` text, so
+  old messages give nobody a mention badge. The first import's live
+  mentions were part of the notification flood. The manifest records the
+  option.
+- The rebuild needs a fresh `slack-members` snapshot first. The reversed
+  import left its 127 deactivated accounts, and those now merge instead of
+  being created again.

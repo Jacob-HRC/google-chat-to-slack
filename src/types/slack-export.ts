@@ -246,6 +246,8 @@ export interface ArchiveManifest {
     spacePrefix?: string;
     /** Every channel made from a Space is archived after the import. */
     archiveAllSpaces?: boolean;
+    /** Mentions were written as plain `@Name` text; see --plain-mentions. */
+    plainMentions?: boolean;
     /** When the Slack member snapshot used for mapping was fetched. */
     slackMembersFetchedAt?: string;
   };

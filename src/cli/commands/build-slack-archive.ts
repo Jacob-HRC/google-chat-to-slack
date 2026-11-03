@@ -59,6 +59,7 @@ type BuildArgs = {
   vaultPrefix?: string;
   spacePrefix?: string;
   archiveAllSpaces?: boolean;
+  plainMentions?: boolean;
   placeholderEmailDomain?: string;
   slackMembers?: string;
   usersOverlay?: string;
@@ -212,6 +213,7 @@ async function toBuildOptions(argv: BuildArgs): Promise<BuildArchiveOptions> {
     vaultPrefix: argv.vaultPrefix,
     spacePrefix: checkSpacePrefix(argv.spacePrefix),
     archiveAllSpaces: argv.archiveAllSpaces ?? false,
+    plainMentions: Boolean(argv.plainMentions),
     placeholderEmailDomain: argv.placeholderEmailDomain,
     slackMembers,
     meetingChats: (argv.meetingChats ?? 'fold') as MeetingChatMode,
@@ -380,6 +382,12 @@ export const buildSlackArchiveCommand: CommandModule<object, BuildArgs> = {
       .option('archive-all-spaces', {
         describe:
           "Archive every channel made from a Space after the import (run archive-channels), whatever the visibility list says. Private ones need a connected member's token. DMs and channels made from them are never archived.",
+        type: 'boolean',
+        default: false,
+      })
+      .option('plain-mentions', {
+        describe:
+          'Write @-mentions as plain "@Name" text instead of live Slack mentions, so years of imported messages give nobody a mention badge or notification. The names still read the same.',
         type: 'boolean',
         default: false,
       })
