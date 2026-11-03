@@ -569,6 +569,28 @@ describe('archive from a fixture store', () => {
     expect(files.thread_ts).toBeUndefined();
   });
 
+  it('writes mentions as plain names when asked, so nobody is notified', async () => {
+    const plain = await buildArchiveModel({
+      storeDir: fixture.dir,
+      teamId: 'T1',
+      spaceFilter: ['general'],
+      skipBotDms: true,
+      spaceVisibility: 'private',
+      deletedPolicy: 'tombstone',
+      fileStrategy: 'manifest',
+      overrides: {},
+      plainMentions: true,
+    });
+    const reply = Object.values(plain.conversations[0].days).flat()[1];
+    expect(reply.text).toBe(
+      'Welcome @Pat Pastor!\n_Reactions: :wave: Pat Pastor, Former user 000003_'
+    );
+    expect(plain.manifest.options.plainMentions).toBe(true);
+    expect(validateArchive(plain).filter((i) => i.level === 'error')).toEqual(
+      []
+    );
+  });
+
   it('queues downloaded files for upload and keeps Drive links in the text', () => {
     const files = messagesOf('general')[2];
     expect(files.files).toBeUndefined();

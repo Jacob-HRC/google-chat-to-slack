@@ -47,6 +47,8 @@ export interface MessageBuildOptions {
   messagesSince?: string;
   /** Attachments moved to Google Drive (stage-large-files), by attachment key. */
   driveCopies?: Record<string, DriveCopy>;
+  /** Write mentions as `@Name` text, not `<@U…>`, so nobody is notified. */
+  plainMentions?: boolean;
 }
 
 export interface DriveCopy {
@@ -89,7 +91,10 @@ const TRAILING_SLASHES_REGEX = /\/+$/;
 
 function textContext(ctx: MessageBuildContext): TextContext {
   return {
-    slackIdFor: (chatUserId) => ctx.users.get(chatUserId)?.slackId,
+    slackIdFor: (chatUserId) =>
+      ctx.options.plainMentions
+        ? undefined
+        : ctx.users.get(chatUserId)?.slackId,
     nameFor: (chatUserId) =>
       ctx.users.get(chatUserId)?.name ?? chatUserId.replace('users/', 'user '),
   };

@@ -88,6 +88,8 @@ export interface BuildArchiveOptions {
   spacePrefix?: string;
   /** Archive every channel made from a Space after the import. */
   archiveAllSpaces?: boolean;
+  /** Mentions become plain `@Name` text, so old messages notify nobody. */
+  plainMentions?: boolean;
   /**
    * Name of a private channel listing every person in the archive. Slack's
    * importer appears to import people through channel membership, so a
@@ -219,6 +221,7 @@ function emptyManifest(options: BuildArchiveOptions): ArchiveManifest {
       excludeSpaces: options.excludeSpaces ?? [],
       spacePrefix: options.spacePrefix || undefined,
       archiveAllSpaces: options.archiveAllSpaces || undefined,
+      plainMentions: options.plainMentions || undefined,
       slackMembersFetchedAt: options.slackMembers?.fetchedAt,
     },
     users: {},
@@ -337,6 +340,7 @@ function messageContext(
       firstSeenAfterRun: options.firstSeenAfterRun,
       messagesSince: options.messagesSince,
       driveCopies: options.driveCopies,
+      plainMentions: options.plainMentions,
     },
     uploads: model.uploads,
     hostedFiles: model.hostedFiles,

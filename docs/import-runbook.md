@@ -18,7 +18,7 @@ so steps 3 and 4 are done by hand. Everything around them is scripted.
   through too.
 - Files: messages point at each file by URL, and Slack downloads them while
   the import runs. The URLs are served from this box by `serve-files`, behind
-  Tailscale Funnel on port 8443. Slack stores whatever the URL returns, so the
+  a Cloudflare tunnel at `slack-files.hrcstats.com`. Slack stores whatever the URL returns, so the
   server answers only the exact files in the archive and refuses to start if
   any file is missing or the wrong size.
 - An import can be undone with **Reverse Import** (Import/Export Data page).
@@ -79,7 +79,7 @@ Pick a random path segment so nobody can guess the file URLs:
 
 ```bash
 TOKEN=$(openssl rand -hex 16)
-BASE="https://server.tail3620c0.ts.net:10000/$TOKEN"
+BASE="https://slack-files.hrcstats.com/$TOKEN"
 
 node --max-old-space-size=6144 -r ts-node/register bin/googletoslack.ts \
   build-slack-archive \
@@ -93,8 +93,13 @@ node --max-old-space-size=6144 -r ts-node/register bin/googletoslack.ts \
   --archive-all-spaces \
   --users-overlay data/vault-exports/users-overlay.json \
   --user-overrides data/vault-exports/manual-addresses.json \
+  --plain-mentions \
   --output data/slack-archive/hrc-full.zip
 ```
+
+`--plain-mentions` writes every @-mention as plain `@Name` text. Live mentions
+in years of old messages gave people already in Slack mention badges and
+notifications during the 2026-11-02 import.
 
 The larger heap is needed for the full store; `pnpm start` is fine for a
 `--space` pilot.
@@ -130,16 +135,23 @@ Beside the ZIP you get `hrc-full.archive-manifest.json`,
 
 ```bash
 pnpm start serve-files --hosted-files data/slack-archive/hrc-full.hosted-files.json --check-only
-pnpm start serve-files --hosted-files data/slack-archive/hrc-full.hosted-files.json
-# in another terminal:
-tailscale funnel --bg --https=10000 http://127.0.0.1:8787
+setsid -f nohup pnpm start serve-files \
+  --hosted-files data/slack-archive/hrc-full.hosted-files.json \
+  --log data/slack-archive/hrc-full.served.jsonl \
+  > data/slack-archive/hrc-full.serve-console.log 2>&1 < /dev/null
+XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user start gcts-slack-files-tunnel
 ```
 
-Use port 8443 or 10000, never 443. Port 443 on this box carries T3 Code,
-and turning Funnel on there would publish it. The port is part of every file
-URL, so pick it before the build. On 2026-11-02 one of Funnel's two ingress
-relays failed TLS on 8443 while 10000 worked through both, so the full
-build uses 10000.
+The files go out through the named Cloudflare tunnel `gcts-slack-files`
+(config `~/.cloudflared/gcts-slack-files.yml`, run by the user unit
+`gcts-slack-files-tunnel.service`, which restarts by itself). It maps
+`slack-files.hrcstats.com` to `127.0.0.1:8787` and answers 404 to anything
+else. Its address never changes, so a restart only pauses fetching.
+
+Don't use Tailscale Funnel. Slack fetched from `*.ts.net` until October 2026,
+then stopped: on 2026-11-03 it ignored clean Funnel URLs on both 8443 and
+10000, while it fetched the same server through Cloudflare and a public
+Wikimedia image. Messages whose file Slack doesn't fetch are dropped whole.
 
 Build from the checkout that ran the export (`~/projects/gcts` on the T3
 box). The store records absolute file paths, and a build from any other
@@ -148,22 +160,18 @@ checkout, even one whose `data/` links to the same store, would write
 ZIP imported every message except the 44,000 that carried a file: Slack
 fetched none of those files and dropped their messages.
 
-Check every relay from off the tailnet, because Slack can reach either one,
-and a failed fetch loses the whole message, text included. Copy the URL
-from the ZIP, not from `hosted-files.json`, and keep `--path-as-is`. Without
-it curl quietly resolves any `..` and the check passes on a URL Slack can't
-use:
+Before handing over the ZIP, fetch a few URLs from off the box (the VPS
+works) over IPv4 and IPv6. Copy them from the ZIP, not from
+`hosted-files.json`, include the largest file, and keep `--path-as-is`.
+Without it curl quietly resolves any `..` and the check passes on a URL Slack
+can't use:
 
 ```bash
-for ip in $(dig +short @1.1.1.1 server.tail3620c0.ts.net A AAAA); do
-  [[ $ip == *:* ]] && ip="[$ip]"
-  curl -s --path-as-is -o /dev/null -w "$ip %{http_code} %{size_download}\n" \
-    --resolve "server.tail3620c0.ts.net:10000:$ip" "<url_private from the ZIP>"
+for v in -4 -6; do
+  curl $v -s --path-as-is -o /dev/null -w "$v %{http_code} %{size_download}\n" \
+    "<url_private from the ZIP>"
 done
 ```
-
-Check one URL from outside (a phone off Wi-Fi works): copy any `url` from
-`hosted-files.json` into a browser. The file should download.
 
 ## 3. Upload the ZIP to Slack
 
@@ -204,10 +212,12 @@ A bot can't read other people's DMs, so those are reported as not readable,
 never as passed. Spot-check a few in the UI. The full report is written
 beside the ZIP as `hrc-full.verify-<time>.json`.
 
-Then turn Funnel off and stop the server:
+Then stop the tunnel and the server, and delete the
+`slack-files.hrcstats.com` CNAME in Cloudflare:
 
 ```bash
-tailscale funnel --https=10000 off
+XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user disable --now gcts-slack-files-tunnel
+kill "$(ss -ltnp | grep 127.0.0.1:8787 | grep -o 'pid=[0-9]*' | cut -d= -f2)"
 ```
 
 ## 6. After the announcement: restore reactions
