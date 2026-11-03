@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -59,6 +59,7 @@ import {
 const USER_ID_REGEX = /^U[0-9A-Z]{10}$/;
 const DM_ID_REGEX = /^D/;
 const FLYER_PATH_REGEX = /flyer\.png$/;
+const OUTSIDE_STORE_REGEX = /is outside .* would contain "\.\."/;
 
 describe('ids', () => {
   it('produces stable Slack-shaped ids', () => {
@@ -686,6 +687,31 @@ describe('archive from a fixture store', () => {
     expect(
       hostedIndex?.messages.find((m) => m.fileSizes)?.fileSizes
     ).toHaveLength(2);
+  });
+
+  it('refuses to host a file recorded outside the store it builds from', async () => {
+    // Same store reached through another path, as from a second checkout
+    // whose data/ is a symlink: the recorded paths no longer sit under it.
+    const elsewhere = await mkdtemp(path.join(tmpdir(), 'gcts-elsewhere-'));
+    const linked = path.join(elsewhere, 'workspace');
+    await symlink(fixture.dir, linked);
+    try {
+      await expect(
+        buildArchiveModel({
+          storeDir: linked,
+          teamId: 'T1',
+          spaceFilter: ['general'],
+          skipBotDms: true,
+          spaceVisibility: 'private',
+          deletedPolicy: 'tombstone',
+          fileStrategy: 'hosted',
+          filesBaseUrl: 'https://files.example.com/chat/',
+          overrides: {},
+        })
+      ).rejects.toThrow(OUTSIDE_STORE_REGEX);
+    } finally {
+      await rm(elsewhere, { recursive: true, force: true });
+    }
   });
 
   it('validates clean, and catches what the importer would choke on', () => {

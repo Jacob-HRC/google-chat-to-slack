@@ -141,14 +141,24 @@ URL, so pick it before the build. On 2026-11-02 one of Funnel's two ingress
 relays failed TLS on 8443 while 10000 worked through both, so the full
 build uses 10000.
 
+Build from the checkout that ran the export (`~/projects/gcts` on the T3
+box). The store records absolute file paths, and a build from any other
+checkout, even one whose `data/` links to the same store, would write
+`/<token>/../../…` URLs. The builder now refuses to. On 2026-11-02 such a
+ZIP imported every message except the 44,000 that carried a file: Slack
+fetched none of those files and dropped their messages.
+
 Check every relay from off the tailnet, because Slack can reach either one,
-and a failed fetch loses the whole message, text included:
+and a failed fetch loses the whole message, text included. Copy the URL
+from the ZIP, not from `hosted-files.json`, and keep `--path-as-is`. Without
+it curl quietly resolves any `..` and the check passes on a URL Slack can't
+use:
 
 ```bash
 for ip in $(dig +short @1.1.1.1 server.tail3620c0.ts.net A AAAA); do
   [[ $ip == *:* ]] && ip="[$ip]"
-  curl -s -o /dev/null -w "$ip %{http_code} %{size_download}\n" \
-    --resolve "server.tail3620c0.ts.net:10000:$ip" "<url from hosted-files.json>"
+  curl -s --path-as-is -o /dev/null -w "$ip %{http_code} %{size_download}\n" \
+    --resolve "server.tail3620c0.ts.net:10000:$ip" "<url_private from the ZIP>"
 done
 ```
 
