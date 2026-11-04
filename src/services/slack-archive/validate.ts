@@ -72,6 +72,10 @@ function checkChannelNames(
 ): void {
   const seen = new Set<string>();
   const named = [...model.channels, ...model.groups, ...model.mpims];
+  // A supplement's public channels take the existing name on purpose.
+  const merging = new Set(
+    model.conversations.filter((c) => c.plan.mergeInto).map((c) => c.plan.name)
+  );
   for (const channel of named) {
     if (!CHANNEL_NAME_REGEX.test(channel.name)) {
       add(ctx, 'error', channel.name, 'invalid Slack channel name');
@@ -80,7 +84,7 @@ function checkChannelNames(
       add(ctx, 'error', channel.name, 'channel name used twice in the archive');
     }
     seen.add(channel.name);
-    if (existing.has(channel.name)) {
+    if (existing.has(channel.name) && !merging.has(channel.name)) {
       add(
         ctx,
         'error',

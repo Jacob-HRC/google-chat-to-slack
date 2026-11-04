@@ -15,9 +15,11 @@ import {
   createdByImport,
   importedChannels,
   isDeltaBuild,
+  mergeTargets,
   pickArchivers,
   planPrivateArchives,
   readArchiveCreated,
+  unarchivePublicChannel,
 } from '../../services/channel-archiver';
 import type {
   ArchiveConversationMapping,
@@ -228,6 +230,63 @@ describe('archive-channels', () => {
       isDeltaBuild(manifest({ messagesSince: '2026-10-01T00:00:00Z' }))
     ).toBe(true);
     expect(isDeltaBuild(manifest({ firstSeenAfterRun: 'R1' }))).toBe(true);
+    // A supplement names its private channels anew, so they can be archived.
+    expect(isDeltaBuild(manifest({ excludeImported: 'R1' }))).toBe(false);
+  });
+
+  it("lists the public channels a supplement merges into, with the ZIP's created", () => {
+    const supplement = {
+      conversations: {
+        A: conversation('gchat-old-team', 'channel', {
+          mergesInto: true,
+          archiveAfterImport: true,
+        }),
+        B: conversation('gchat-old-finance-2', 'group', {
+          archiveAfterImport: true,
+        }),
+        C: conversation('gchat-old-quiet', 'channel', {
+          mergesInto: true,
+          skippedReason: 'nothing new since the earlier import',
+        }),
+      },
+    } as unknown as ArchiveManifest;
+    expect(
+      mergeTargets(supplement, new Map([['gchat-old-team', 1_650_000_000]]))
+    ).toEqual([
+      {
+        spaceId: 'A',
+        name: 'gchat-old-team',
+        isPrivate: false,
+        created: 1_650_000_000,
+      },
+    ]);
+  });
+
+  it('unarchives an archived channel and leaves an open one alone', async () => {
+    const calls: string[] = [];
+    const bot = {
+      conversations: {
+        unarchive: ({ channel }: { channel: string }) => {
+          calls.push(`unarchive:${channel}`);
+          return Promise.resolve({ ok: true });
+        },
+      },
+    } as unknown as WebClient;
+    expect(
+      await unarchivePublicChannel(bot, {
+        id: 'C1',
+        isArchived: true,
+        created: 0,
+      })
+    ).toBe('unarchived');
+    expect(
+      await unarchivePublicChannel(bot, {
+        id: 'C2',
+        isArchived: false,
+        created: 0,
+      })
+    ).toBe('open');
+    expect(calls).toEqual(['unarchive:C1']);
   });
 
   describe('private channel decisions', () => {

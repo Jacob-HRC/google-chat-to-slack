@@ -45,6 +45,8 @@ export interface MessageBuildOptions {
   filesRoot: string;
   /** Only include messages first seen after this run (delta archives). */
   firstSeenAfterRun?: string;
+  /** `slackTs` of messages to include whatever the delta options say. */
+  reincludeTs?: Set<string>;
   /** Only include messages created after this RFC 3339 time (delta archives). */
   messagesSince?: string;
   /** Attachments moved to Google Drive (stage-large-files), by attachment key. */
@@ -110,9 +112,12 @@ export function isIncluded(
   message: StoredMessage,
   options: Pick<
     MessageBuildOptions,
-    'firstSeenAfterRun' | 'messagesSince' | 'deletedPolicy'
+    'firstSeenAfterRun' | 'messagesSince' | 'deletedPolicy' | 'reincludeTs'
   >
 ): boolean {
+  if (options.reincludeTs?.has(message.slackTs)) {
+    return true;
+  }
   if (
     options.firstSeenAfterRun &&
     message.firstSeenRun <= options.firstSeenAfterRun

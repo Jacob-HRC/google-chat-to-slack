@@ -8,6 +8,10 @@ import {
   buildArchiveModel,
 } from '../../services/slack-archive/builder';
 import type { SpaceVisibility } from '../../services/slack-archive/conversations';
+import {
+  type ImportedRecord,
+  loadImportedRecord,
+} from '../../services/slack-archive/imported';
 import type { MeetingChatMode } from '../../services/slack-archive/meeting-chats';
 import type {
   DeletedPolicy,
@@ -55,6 +59,7 @@ type BuildArgs = {
   userOverrides?: string;
   firstSeenAfter?: string;
   messagesSince?: string;
+  excludeImported?: string;
   teamId?: string;
   vaultPrefix?: string;
   spacePrefix?: string;
@@ -100,6 +105,25 @@ async function loadSlackMembers(
     throw new Error(`${filePath} is not a slack-members snapshot`);
   }
   return snapshot;
+}
+
+/** The earlier import a supplement builds on; see imported.ts. */
+async function loadImported(
+  argv: BuildArgs
+): Promise<ImportedRecord | undefined> {
+  if (!argv.excludeImported) {
+    return;
+  }
+  if (argv.firstSeenAfter) {
+    throw new Error(
+      '--exclude-imported sets the cut-off itself; drop --first-seen-after'
+    );
+  }
+  const record = await loadImportedRecord(path.resolve(argv.excludeImported));
+  console.log(
+    `Supplement to the import built from store run ${record.storeLastRun}: messages first stored after it, plus ${record.reinclude.size} the import lost.`
+  );
+  return record;
 }
 
 async function loadVisibility(
@@ -210,6 +234,7 @@ async function toBuildOptions(argv: BuildArgs): Promise<BuildArchiveOptions> {
     overrides,
     firstSeenAfterRun: argv.firstSeenAfter,
     messagesSince: argv.messagesSince,
+    imported: await loadImported(argv),
     vaultPrefix: argv.vaultPrefix,
     spacePrefix: checkSpacePrefix(argv.spacePrefix),
     archiveAllSpaces: argv.archiveAllSpaces ?? false,
@@ -355,6 +380,11 @@ export const buildSlackArchiveCommand: CommandModule<object, BuildArgs> = {
       .option('first-seen-after', {
         describe:
           'Delta archive: only messages first stored after this export run id.',
+        type: 'string',
+      })
+      .option('exclude-imported', {
+        describe:
+          "Supplemental import: the frozen record of the earlier import (its import-record.json, archive manifest and optional lost-messages.json). Takes only messages stored after that build, plus the ones it lost. Public channels keep their names so Slack merges them (unarchive them first: archive-channels --unarchive); private ones get <name>-2, since Slack can't merge into a private channel. Conversations with nothing new are left out.",
         type: 'string',
       })
       .option('messages-since', {

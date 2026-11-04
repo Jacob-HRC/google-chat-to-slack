@@ -45,6 +45,11 @@ import {
   uniqueName,
 } from './ids';
 import {
+  type ImportedRecord,
+  importedChannelNames,
+  nameForSupplement,
+} from './imported';
+import {
   isMeetingChat,
   type MeetingChatMode,
   meetingHeaderText,
@@ -82,6 +87,11 @@ export interface BuildArchiveOptions {
   overrides: Record<string, UserOverride>;
   firstSeenAfterRun?: string;
   messagesSince?: string;
+  /**
+   * A supplement to an earlier import: only what it didn't bring, with
+   * channels named to merge or sit beside its own (see imported.ts).
+   */
+  imported?: ImportedRecord;
   /** Prefix for channels recovered from Google Vault. Empty for none. */
   vaultPrefix?: string;
   /**
@@ -225,6 +235,7 @@ function emptyManifest(options: BuildArchiveOptions): ArchiveManifest {
       skipBotDms: options.skipBotDms,
       firstSeenAfterRun: options.firstSeenAfterRun,
       messagesSince: options.messagesSince,
+      excludeImported: options.imported?.storeLastRun,
       spaceFilter: options.spaceFilter,
       excludeSpaces: options.excludeSpaces ?? [],
       spacePrefix: options.spacePrefix || undefined,
@@ -322,6 +333,22 @@ function slimAttachmentIndex(
   return index;
 }
 
+/** Which messages the build takes; a supplement starts after its import. */
+function inclusionOf(
+  options: BuildArchiveOptions
+): Pick<
+  MessageBuildContext['options'],
+  'firstSeenAfterRun' | 'messagesSince' | 'deletedPolicy' | 'reincludeTs'
+> {
+  return {
+    firstSeenAfterRun:
+      options.imported?.storeLastRun ?? options.firstSeenAfterRun,
+    messagesSince: options.messagesSince,
+    deletedPolicy: options.deletedPolicy,
+    reincludeTs: options.imported?.reinclude,
+  };
+}
+
 interface Shared {
   model: ArchiveModel;
   byChatId: Map<string, ArchiveUserMapping>;
@@ -344,12 +371,10 @@ function messageContext(
     users: shared.byChatId,
     attachmentIndex: shared.attachmentIndex,
     options: {
-      deletedPolicy: options.deletedPolicy,
       fileStrategy: options.fileStrategy,
       filesBaseUrl: options.filesBaseUrl,
       filesRoot: attachmentsFilesDir(options.storeDir),
-      firstSeenAfterRun: options.firstSeenAfterRun,
-      messagesSince: options.messagesSince,
+      ...inclusionOf(options),
       driveCopies: options.driveCopies,
       plainMentions: options.plainMentions,
     },
@@ -434,6 +459,7 @@ function addConversation(
     omitted: built.omitted,
     days: Object.keys(built.days).length,
     ...(plan.archived ? { archiveAfterImport: true } : {}),
+    ...(plan.mergeInto ? { mergesInto: true } : {}),
   };
   return conversation;
 }
@@ -514,6 +540,13 @@ function seriesHome(
     purpose: `Google Meet chats from "${series}", one thread per meeting.`,
     archived: shared.conversationOptions.archiveAllSpaces || undefined,
   };
+  if (shared.options.imported) {
+    nameForSupplement(
+      plan,
+      shared.options.imported,
+      shared.conversationOptions.usedNames
+    );
+  }
   const conversation = addConversation(
     shared.model,
     plan.spaceId,
@@ -613,7 +646,8 @@ export const MEMBERS_CHANNEL_TEXT =
 function addMembersChannel(
   model: ArchiveModel,
   name: string,
-  usedNames: Set<string>
+  usedNames: Set<string>,
+  record?: ImportedRecord
 ): void {
   const members = [...new Set(model.users.map((u) => u.id))];
   const creator =
@@ -638,6 +672,9 @@ function addMembersChannel(
     created,
     purpose: MEMBERS_CHANNEL_TEXT,
   };
+  if (record) {
+    nameForSupplement(plan, record, usedNames);
+  }
   const ts = `${created}.000001`;
   addConversation(model, 'members-channel', plan, {
     days: {
@@ -683,11 +720,94 @@ async function collectReferenced(
       appsWithFiles,
       (message) =>
         !skipped &&
-        isIncluded(message, options) &&
+        isIncluded(message, inclusionOf(options)) &&
         carriesFiles(message, attachmentIndex, options.driveCopies)
     );
   }
   return { ids, appsWithFiles };
+}
+
+const KIND_TOTAL = {
+  channel: 'channels',
+  group: 'groups',
+  dm: 'dms',
+  mpim: 'mpims',
+} as const;
+
+/**
+ * People the record doesn't know, apps aside. A supplement needs the
+ * members channel only for them: everyone else is in Slack already.
+ */
+function newPeople(shared: Shared, record: ImportedRecord): number {
+  return [...shared.byChatId]
+    .filter(([id, m]) => m.status !== 'bot' && !record.users.has(id))
+    .map(([, m]) => m.slackId)
+    .filter((id, i, all) => all.indexOf(id) === i).length;
+}
+
+/**
+ * Drops each conversation a supplement has nothing new for, so Slack
+ * creates no empty channel. Its manifest entry stays, marked skipped.
+ */
+function dropEmptyConversations(model: ArchiveModel): void {
+  const empty = new Set(
+    model.conversations.filter((c) => c.messageCount === 0)
+  );
+  if (empty.size === 0) {
+    return;
+  }
+  const ids = new Set([...empty].map((c) => c.plan.id));
+  model.conversations = model.conversations.filter((c) => !empty.has(c));
+  model.channels = model.channels.filter((c) => !ids.has(c.id));
+  model.groups = model.groups.filter((c) => !ids.has(c.id));
+  model.dms = model.dms.filter((c) => !ids.has(c.id));
+  model.mpims = model.mpims.filter((c) => !ids.has(c.id));
+  const totals = model.manifest.totals;
+  for (const { plan } of empty) {
+    totals[KIND_TOTAL[plan.kind]] -= 1;
+    totals.skippedConversations += 1;
+    const entry = model.manifest.conversations[plan.spaceId];
+    if (entry) {
+      entry.skippedReason = 'nothing new since the earlier import';
+    }
+  }
+}
+
+function finishSupplementAndMembers(shared: Shared): void {
+  const { model, options } = shared;
+  const record = options.imported;
+  if (record) {
+    dropEmptyConversations(model);
+  }
+  if (options.membersChannel && !(record && newPeople(shared, record) === 0)) {
+    addMembersChannel(
+      model,
+      options.membersChannel,
+      shared.conversationOptions.usedNames,
+      record
+    );
+  }
+}
+
+function conversationOptionsOf(
+  options: BuildArchiveOptions
+): ConversationOptions {
+  return {
+    spaceVisibility: options.spaceVisibility,
+    skipBotDms: options.skipBotDms,
+    // Existing channel names are taken, so archive history never lands in an
+    // unrelated channel that happens to share a name (e.g. #general).
+    usedNames: new Set([
+      ...(options.slackMembers?.channels?.map((c) => c.name) ?? []),
+      ...(options.imported ? importedChannelNames(options.imported) : []),
+    ]),
+    vaultPrefix: options.vaultPrefix,
+    spacePrefix: options.spacePrefix,
+    archiveAllSpaces: options.archiveAllSpaces,
+    visibilityBySpace: options.visibilityBySpace,
+    archivedSpaces: options.archivedSpaces,
+    unlisted: [],
+  };
 }
 
 export async function buildArchiveModel(
@@ -747,19 +867,7 @@ export async function buildArchiveModel(
     attachmentIndex,
     options,
     fileCounts: { hosted: 0, linkOnly: 0, unavailable: 0 },
-    conversationOptions: {
-      spaceVisibility: options.spaceVisibility,
-      skipBotDms: options.skipBotDms,
-      // Existing channel names are taken, so archive history never lands in an
-      // unrelated channel that happens to share a name (e.g. #general).
-      usedNames: new Set(options.slackMembers?.channels?.map((c) => c.name)),
-      vaultPrefix: options.vaultPrefix,
-      spacePrefix: options.spacePrefix,
-      archiveAllSpaces: options.archiveAllSpaces,
-      visibilityBySpace: options.visibilityBySpace,
-      archivedSpaces: options.archivedSpaces,
-      unlisted: [],
-    },
+    conversationOptions: conversationOptionsOf(options),
   };
   if (shared.appAccountIds.size > 0 && !options.placeholderEmailDomain) {
     model.manifest.warnings.push(
@@ -799,17 +907,18 @@ export async function buildArchiveModel(
       messageContext(shared, plan)
     );
     addAppMembers(plan, built.days, shared.appAccountIds);
+    if (options.imported) {
+      nameForSupplement(
+        plan,
+        options.imported,
+        shared.conversationOptions.usedNames
+      );
+    }
     addConversation(model, space.spaceId, plan, built);
   }
   foldMeetings(shared, meetings);
   warnAboutUnlisted(model, shared.conversationOptions.unlisted ?? []);
-  if (options.membersChannel) {
-    addMembersChannel(
-      model,
-      options.membersChannel,
-      shared.conversationOptions.usedNames
-    );
-  }
+  finishSupplementAndMembers(shared);
 
   const { fileCounts } = shared;
   const uploads = model.uploads;
