@@ -111,6 +111,22 @@ export function compareTimestamps(a: string, b: string): number {
 }
 
 /** Compact, sortable run identifier, e.g. `20260922T061500Z`. */
+const RUN_TIME_REGEX = /\d{8}T\d{6}Z/;
+
+/**
+ * Orders run ids by when they ran. A Vault import's id carries a prefix
+ * (`vault-20260922T203043Z`), and compared as text it sorts after every
+ * export run. Ids without a time compare as text. Pure.
+ */
+export function compareRunIds(a: string, b: string): number {
+  const at = RUN_TIME_REGEX.exec(a)?.[0] ?? a;
+  const bt = RUN_TIME_REGEX.exec(b)?.[0] ?? b;
+  if (at === bt) {
+    return 0;
+  }
+  return at < bt ? -1 : 1;
+}
+
 export function makeRunId(date = new Date()): string {
   return date
     .toISOString()

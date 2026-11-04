@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  compareRunIds,
   compareTimestamps,
   makeRunId,
   microsToSlackTs,
@@ -74,6 +75,18 @@ describe('makeRunId', () => {
     expect(makeRunId(new Date('2026-09-22T06:15:00.123Z'))).toBe(
       '20260922T061500Z'
     );
+  });
+});
+
+describe('compareRunIds', () => {
+  it("orders a Vault import's run by when it ran, not by its prefix", () => {
+    // As text, "vault-…" sorts after every export run.
+    expect(compareRunIds('vault-20260922T203043Z', '20261102T205759Z')).toBe(
+      -1
+    );
+    expect(compareRunIds('20261103T000000Z', 'vault-20260922T203043Z')).toBe(1);
+    expect(compareRunIds('20261102T205759Z', '20261102T205759Z')).toBe(0);
+    expect(compareRunIds('run1', 'run2')).toBe(-1);
   });
 });
 

@@ -16,6 +16,7 @@ import type {
   SlackExportReaction,
 } from '../../types/slack-export';
 import {
+  compareRunIds,
   compareTimestamps,
   microsToSlackTs,
   slackTsToMicros,
@@ -120,7 +121,7 @@ export function isIncluded(
   }
   if (
     options.firstSeenAfterRun &&
-    message.firstSeenRun <= options.firstSeenAfterRun
+    compareRunIds(message.firstSeenRun, options.firstSeenAfterRun) <= 0
   ) {
     return false;
   }
