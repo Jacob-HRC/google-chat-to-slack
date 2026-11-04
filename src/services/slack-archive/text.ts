@@ -16,7 +16,10 @@ const BULLET_LINE_REGEX = /^(\s*)[*-] (?=\S)/gm;
 const COLON_REGEX = /^:|:$/g;
 
 export interface TextContext {
-  /** Slack user id for a Google `users/<id>`; undefined when unmapped. */
+  /**
+   * Slack user id for a Google `users/<id>`. Undefined when unmapped, or
+   * when mentions are written as plain names (--plain-mentions).
+   */
   slackIdFor: (chatUserId: string) => string | undefined;
   /** Human-readable name for a Google `users/<id>`. */
   nameFor: (chatUserId: string) => string;
@@ -32,9 +35,15 @@ export function escapeSlackText(text: string): string {
 function convertToken(token: string, ctx: TextContext): string {
   const user = USER_TOKEN_REGEX.exec(token);
   if (user) {
+    if (user[1] === 'all') {
+      // Google's @all. Written as text: it should notify no one now.
+      return '@all';
+    }
     const chatUserId = `users/${user[1]}`;
     const slackId = ctx.slackIdFor(chatUserId);
-    return slackId ? `<@${slackId}>` : `@${ctx.nameFor(chatUserId)}`;
+    return slackId
+      ? `<@${slackId}>`
+      : `@${escapeSlackText(ctx.nameFor(chatUserId))}`;
   }
   const link = LINK_TOKEN_REGEX.exec(token);
   if (link) {

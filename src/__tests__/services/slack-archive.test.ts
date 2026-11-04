@@ -112,6 +112,20 @@ describe('text', () => {
     );
   });
 
+  it('escapes names written as plain mentions, and writes @all as text', () => {
+    // As in a --plain-mentions build: no one resolves to a Slack id.
+    const plain = {
+      slackIdFor: (id: string) => (id === 'users/none' ? 'U0' : undefined),
+      nameFor: () => 'Jennifer & Lauren <camp>',
+    };
+    expect(
+      convertFormattedText(
+        `Hi <users/${USER_PASTOR.split('/')[1]}> and <users/all>`,
+        plain
+      )
+    ).toBe('Hi @Jennifer &amp; Lauren &lt;camp&gt; and @all');
+  });
+
   it('leaves Google markup that Slack shares untouched', () => {
     expect(convertFormattedText('*bold* _it_ ~s~ `c` ```block```', ctx)).toBe(
       '*bold* _it_ ~s~ `c` ```block```'
