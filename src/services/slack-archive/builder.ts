@@ -926,11 +926,7 @@ export async function buildArchiveModel(
       recordSkipped(model, space, messages.length, plan.skippedReason, plan);
       continue;
     }
-    const built = buildConversationMessages(
-      messages,
-      messageContext(shared, plan)
-    );
-    addAppMembers(plan, built.days, shared.appAccountIds);
+    // Before the messages: file records carry the channel's name.
     if (options.imported) {
       nameForSupplement(
         plan,
@@ -938,6 +934,11 @@ export async function buildArchiveModel(
         shared.conversationOptions.usedNames
       );
     }
+    const built = buildConversationMessages(
+      messages,
+      messageContext(shared, plan)
+    );
+    addAppMembers(plan, built.days, shared.appAccountIds);
     addConversation(model, space.spaceId, plan, built);
   }
   foldMeetings(shared, meetings);
