@@ -99,7 +99,9 @@ function textContext(ctx: MessageBuildContext): TextContext {
         ? undefined
         : ctx.users.get(chatUserId)?.slackId,
     nameFor: (chatUserId) =>
-      ctx.users.get(chatUserId)?.name ?? chatUserId.replace('users/', 'user '),
+      ctx.users.get(chatUserId)?.name ??
+      ctx.appNames?.get(chatUserId) ??
+      chatUserId.replace('users/', 'user '),
   };
 }
 
