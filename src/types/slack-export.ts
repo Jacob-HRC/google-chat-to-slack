@@ -140,6 +140,11 @@ export interface ConversationPlan {
    * Never written as is_archived: Slack's importer skips archived channels.
    */
   archived?: boolean;
+  /**
+   * A supplement's public channel named exactly as the one the earlier
+   * import created, so Slack merges into it (see imported.ts).
+   */
+  mergeInto?: boolean;
 }
 
 export interface FileUploadTask {
@@ -226,6 +231,8 @@ export interface ArchiveConversationMapping {
   mergedInto?: string;
   /** Archive right after the import; see archive-channels. */
   archiveAfterImport?: boolean;
+  /** Merges into the existing Slack channel of this name (a supplement). */
+  mergesInto?: boolean;
 }
 
 export interface ArchiveManifest {
@@ -248,6 +255,11 @@ export interface ArchiveManifest {
     archiveAllSpaces?: boolean;
     /** Mentions were written as plain `@Name` text; see --plain-mentions. */
     plainMentions?: boolean;
+    /**
+     * A supplement to an earlier import (--exclude-imported): the store run
+     * that import's ZIP was built from. Messages first stored after it.
+     */
+    excludeImported?: string;
     /** When the Slack member snapshot used for mapping was fetched. */
     slackMembersFetchedAt?: string;
   };

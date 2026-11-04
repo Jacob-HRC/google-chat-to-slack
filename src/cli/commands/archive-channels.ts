@@ -15,9 +15,11 @@ import {
   channelsByName,
   createdByImport,
   isDeltaBuild,
+  mergeTargets,
   planPrivateArchives,
   privateChannelsOf,
   readArchiveCreated,
+  unarchivePublicChannel,
 } from '../../services/channel-archiver';
 import { getSlackWebClient } from '../../services/slack';
 import { sidecarPath } from '../../services/slack-archive/writer';
@@ -29,16 +31,15 @@ import { readJsonFile } from '../../utils/fs-atomic';
 type ArchiveChannelsArgs = {
   archive?: string;
   dryRun?: boolean;
+  unarchive?: boolean;
 };
 
-type Counts = Map<ArchiveOutcome | 'would-archive', number>;
+type Outcome = ArchiveOutcome | 'would-archive' | 'would-unarchive';
+type Counts = Map<Outcome, number>;
 
 const ARCHIVE_SCOPE = 'groups:write';
 
-function tally(
-  counts: Counts,
-  outcome: ArchiveOutcome | 'would-archive'
-): void {
+function tally(counts: Counts, outcome: Outcome): void {
   counts.set(outcome, (counts.get(outcome) ?? 0) + 1);
 }
 
@@ -56,7 +57,7 @@ async function archivePublic(
   const counts: Counts = new Map();
   for (const target of targets) {
     const channel = inSlack.get(target.name);
-    let outcome: ArchiveOutcome | 'would-archive';
+    let outcome: Outcome;
     if (!channel) {
       outcome = 'not-found';
     } else if (!createdByImport(channel, builtAt, target.created)) {
@@ -72,6 +73,44 @@ async function archivePublic(
       outcome === 'not-found' ||
       outcome === 'not-imported' ||
       outcome === 'failed'
+    ) {
+      console.warn(`   ${outcome}: #${target.name}`);
+    }
+  }
+  return counts;
+}
+
+/**
+ * Before a supplement: unarchives the public channels it merges into, which
+ * the bot archived after the earlier import. Only the import's own channel
+ * (matching `created`) is touched.
+ */
+async function unarchiveForMerge(
+  bot: WebClient,
+  targets: ArchiveTarget[],
+  builtAt: string,
+  dryRun: boolean
+): Promise<Counts> {
+  const inSlack = await channelsByName(bot);
+  const counts: Counts = new Map();
+  for (const target of targets) {
+    const channel = inSlack.get(target.name);
+    let outcome: Outcome;
+    if (!channel) {
+      outcome = 'not-found';
+    } else if (!createdByImport(channel, builtAt, target.created)) {
+      outcome = 'not-imported';
+    } else if (dryRun) {
+      outcome = channel.isArchived ? 'would-unarchive' : 'open';
+    } else {
+      // biome-ignore lint/nursery/noAwaitInLoop: one channel at a time, inside Slack's rate limits.
+      outcome = await unarchivePublicChannel(bot, channel);
+    }
+    tally(counts, outcome);
+    if (
+      outcome !== 'unarchived' &&
+      outcome !== 'open' &&
+      outcome !== 'would-unarchive'
     ) {
       console.warn(`   ${outcome}: #${target.name}`);
     }
@@ -154,7 +193,7 @@ async function archivePrivate(
   const left: string[] = [];
   const deltaMatches: string[] = [];
   for (const decision of decisions) {
-    let outcome: ArchiveOutcome | 'would-archive';
+    let outcome: Outcome;
     if (decision.action !== 'archive') {
       outcome = decision.action;
     } else if (dryRun) {
@@ -197,6 +236,12 @@ export const archiveChannelsCommand: CommandModule<
         type: 'boolean',
         default: false,
       })
+      .option('unarchive', {
+        describe:
+          "Before a supplement (build-slack-archive --exclude-imported): unarchive the public channels it merges into, since Slack won't merge into an archived channel. Run archive-channels again after the import.",
+        type: 'boolean',
+        default: false,
+      })
       .strict(),
   handler: async (argv) => {
     try {
@@ -215,12 +260,23 @@ export const archiveChannelsCommand: CommandModule<
       if (!manifest) {
         throw new Error('archive manifest not found beside the ZIP');
       }
-      const targets = archiveTargets(
-        manifest,
-        await readArchiveCreated(zipPath)
-      );
+      const zipCreated = await readArchiveCreated(zipPath);
       const dryRun = argv.dryRun ?? false;
       const bot = await getSlackWebClient();
+      if (argv.unarchive) {
+        const merging = await unarchiveForMerge(
+          bot,
+          mergeTargets(manifest, zipCreated),
+          manifest.builtAt,
+          dryRun
+        );
+        console.log(`Public channels to merge into: ${summary(merging)}`);
+        if ((merging.get('failed') ?? 0) > 0) {
+          process.exit(1);
+        }
+        return;
+      }
+      const targets = archiveTargets(manifest, zipCreated);
       const teamId = (await bot.auth.test()).team_id ?? '';
       const publicCounts = await archivePublic(
         bot,

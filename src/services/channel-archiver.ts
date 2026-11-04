@@ -22,6 +22,8 @@ export interface ArchiveTarget {
 
 export type ArchiveOutcome =
   | 'archived'
+  | 'unarchived'
+  | 'open'
   | 'already'
   | 'not-found'
   | 'not-imported'
@@ -72,11 +74,36 @@ export function importedChannels(
   );
 }
 
-/** Built with --messages-since or --first-seen-after. Pure. */
+/**
+ * Built with --messages-since or --first-seen-after, so its private
+ * channels reuse the earlier import's names. A supplement
+ * (--exclude-imported) gives them new names instead, so it isn't. Pure.
+ */
 export function isDeltaBuild(manifest: ArchiveManifest): boolean {
   return Boolean(
-    manifest.options.messagesSince || manifest.options.firstSeenAfterRun
+    !manifest.options.excludeImported &&
+      (manifest.options.messagesSince || manifest.options.firstSeenAfterRun)
   );
+}
+
+/**
+ * Public channels a supplement merges into. Slack won't merge into an
+ * archived channel (test 6, 2026-11-04), so these are unarchived before
+ * the import and archived again after it. Pure.
+ */
+export function mergeTargets(
+  manifest: ArchiveManifest,
+  zipCreated: Map<string, number> = new Map()
+): ArchiveTarget[] {
+  return Object.entries(manifest.conversations)
+    .filter(([, c]) => c.mergesInto && !c.skippedReason)
+    .map(([spaceId, c]) => ({
+      spaceId,
+      name: c.name,
+      isPrivate: false,
+      created: zipCreated.get(c.name),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** Channels the manifest marks for archiving, with the ZIP's `created` by name. Pure. */
@@ -174,6 +201,26 @@ export async function archivePublicChannel(
     return 'archived';
   } catch (error) {
     return errorCode(error) === 'already_archived' ? 'already' : 'failed';
+  }
+}
+
+/**
+ * Unarchives a public channel the bot archived. An archived channel can't
+ * be joined, so the bot must still be in it (it stays a member when it
+ * archives).
+ */
+export async function unarchivePublicChannel(
+  bot: WebClient,
+  channel: ChannelRef
+): Promise<ArchiveOutcome> {
+  if (!channel.isArchived) {
+    return 'open';
+  }
+  try {
+    await bot.conversations.unarchive({ channel: channel.id });
+    return 'unarchived';
+  } catch (error) {
+    return errorCode(error) === 'not_archived' ? 'open' : 'failed';
   }
 }
 

@@ -10,11 +10,17 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { chat_v1 } from 'googleapis';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { readArchiveCreated } from '../../services/channel-archiver';
 import {
+  isDeltaBuild,
+  mergeTargets,
+  readArchiveCreated,
+} from '../../services/channel-archiver';
+import {
+  loadMessages,
   mergeSpace,
   openStore,
   saveAttachmentIndex,
+  saveMessages,
   saveUsers,
 } from '../../services/export-store';
 import { buildArchiveModel } from '../../services/slack-archive/builder';
@@ -26,6 +32,10 @@ import {
   slackIdFor,
   uniqueName,
 } from '../../services/slack-archive/ids';
+import {
+  type ImportedRecord,
+  loadImportedRecord,
+} from '../../services/slack-archive/imported';
 import { TOMBSTONE_TEXT } from '../../services/slack-archive/messages';
 import {
   decideImportAction,
@@ -1186,5 +1196,155 @@ describe('app posts', () => {
       subtype: 'bot_message',
       username: 'Data Monitoring',
     });
+  });
+});
+
+describe('supplement to an earlier import', () => {
+  let dir: string;
+  const GENERAL = 'AAAAgeneral';
+  const roster = (names: string[]): SlackMemberSnapshot => ({
+    ...SLACK_SNAPSHOT,
+    channels: names.map((name, i) => ({
+      id: `C${i}`,
+      name,
+      isPrivate: false,
+      isArchived: true,
+    })),
+  });
+  const build = (
+    spaceVisibility: 'public' | 'private',
+    imported?: ImportedRecord
+  ): Promise<ArchiveModel> =>
+    buildArchiveModel({
+      storeDir: dir,
+      teamId: 'T1',
+      spaceFilter: [],
+      skipBotDms: true,
+      spaceVisibility,
+      deletedPolicy: 'tombstone',
+      fileStrategy: 'manifest',
+      overrides: {},
+      placeholderEmailDomain: 'chat-archive.example.com',
+      membersChannel: 'chat-import-members',
+      // After the import, its channels are in Slack (and archived).
+      slackMembers: imported
+        ? roster(['general', 'chat-import-members'])
+        : SLACK_SNAPSHOT,
+      imported,
+    });
+  const recordOf = (
+    full: ArchiveModel,
+    reinclude: string[]
+  ): ImportedRecord => ({
+    storeLastRun: 'run2',
+    conversations: full.manifest.conversations,
+    users: new Set(Object.keys(full.manifest.users)),
+    reinclude: new Set(reinclude),
+  });
+  let lostTs: string;
+
+  beforeAll(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'gcts-supplement-'));
+    await createFixtureStore(dir);
+    const store = await openStore(dir);
+    const messages = await loadMessages(store, GENERAL);
+    lostTs = messages[0].slackTs;
+    // One message stored after the import's build.
+    await saveMessages(store, GENERAL, [
+      ...messages,
+      {
+        ...messages[0],
+        name: `spaces/${GENERAL}/messages/new1.new1`,
+        messageId: 'new1.new1',
+        threadName: `spaces/${GENERAL}/threads/new1`,
+        createTime: '2026-11-05T09:00:00.000001Z',
+        slackTs: '1793869200.000001',
+        text: 'Posted after the import',
+        formattedText: 'Posted after the import',
+        lastUpdateTime: undefined,
+        reactions: [],
+        attachmentKeys: [],
+        firstSeenRun: 'run3',
+      },
+    ]);
+  });
+
+  afterAll(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('merges a public channel under its imported name, with only what the import lacks', async () => {
+    const full = await build('public');
+    expect(full.channels.map((c) => c.name)).toContain('general');
+    const supplement = await build('public', recordOf(full, [lostTs]));
+
+    // Only the channel with something new; nobody new, so no members channel.
+    expect(supplement.conversations.map((c) => c.plan.name)).toEqual([
+      'general',
+    ]);
+    const [general] = supplement.conversations;
+    expect(general.plan.mergeInto).toBe(true);
+    expect(
+      Object.values(general.days)
+        .flat()
+        .map((m) => m.ts)
+        .sort()
+    ).toEqual([lostTs, '1793869200.000001'].sort());
+    expect(supplement.manifest.conversations[GENERAL]).toMatchObject({
+      name: 'general',
+      mergesInto: true,
+    });
+    expect(supplement.manifest.options.excludeImported).toBe('run2');
+    expect(supplement.manifest.totals).toMatchObject({ dms: 0, mpims: 0 });
+    expect(supplement.manifest.conversations.BBBBdm?.skippedReason).toBe(
+      'nothing new since the earlier import'
+    );
+    // Merging into the existing channel is the point, not a clash.
+    expect(
+      validateArchive(supplement, ['general', 'chat-import-members']).filter(
+        (i) => i.level === 'error'
+      )
+    ).toEqual([]);
+    expect(isDeltaBuild(supplement.manifest)).toBe(false);
+    expect(mergeTargets(supplement.manifest).map((t) => t.name)).toEqual([
+      'general',
+    ]);
+  });
+
+  it('gives a private channel a new name beside the imported one', async () => {
+    const full = await build('private');
+    expect(full.groups.map((g) => g.name)).toContain('general');
+    const supplement = await build('private', recordOf(full, []));
+    const [general] = supplement.conversations;
+    expect(general.plan.name).toBe('general-2');
+    expect(general.plan.mergeInto).toBeUndefined();
+    expect(
+      Object.values(general.days)
+        .flat()
+        .map((m) => m.text)
+    ).toEqual(['Posted after the import']);
+  });
+
+  it('reads a frozen import record', async () => {
+    const recordDir = await mkdtemp(path.join(tmpdir(), 'gcts-record-'));
+    const full = await build('public');
+    await writeFile(
+      path.join(recordDir, 'import-record.json'),
+      JSON.stringify({ storeLastRun: { runId: 'run2', status: 'complete' } })
+    );
+    await writeFile(
+      path.join(recordDir, 'hrc-full.archive-manifest.json'),
+      JSON.stringify(full.manifest)
+    );
+    await writeFile(
+      path.join(recordDir, 'lost-messages.json'),
+      JSON.stringify([{ conversationName: 'general', ts: lostTs }])
+    );
+    const record = await loadImportedRecord(recordDir);
+    expect(record.storeLastRun).toBe('run2');
+    expect(record.reinclude).toEqual(new Set([lostTs]));
+    expect(record.conversations[GENERAL]?.name).toBe('general');
+    expect(record.users.size).toBe(Object.keys(full.manifest.users).length);
+    await rm(recordDir, { recursive: true, force: true });
   });
 });
