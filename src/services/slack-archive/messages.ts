@@ -25,6 +25,7 @@ import { reactionEmoji } from './emoji';
 import { slackIdFor } from './ids';
 import { migratedTime } from './migrated';
 import {
+  escapeSlackText,
   fallbackText,
   messageText,
   reactionShortName,
@@ -105,9 +106,12 @@ function textContext(ctx: MessageBuildContext): TextContext {
   };
 }
 
-function isIncluded(
+export function isIncluded(
   message: StoredMessage,
-  options: MessageBuildOptions
+  options: Pick<
+    MessageBuildOptions,
+    'firstSeenAfterRun' | 'messagesSince' | 'deletedPolicy'
+  >
 ): boolean {
   if (
     options.firstSeenAfterRun &&
@@ -125,6 +129,25 @@ function isIncluded(
     return false;
   }
   return true;
+}
+
+/**
+ * True when the built message will carry a file for Slack to fetch. Links,
+ * Drive copies, and attachments that never downloaded add text, not files.
+ */
+export function carriesFiles(
+  message: StoredMessage,
+  index: Record<string, AttachmentRecord>,
+  driveCopies?: MessageBuildOptions['driveCopies']
+): boolean {
+  return message.attachmentKeys.some((key) => {
+    const record = index[key];
+    return (
+      Boolean(record?.localPath) &&
+      (record.status === 'downloaded' || record.status === 'exported') &&
+      !driveCopies?.[key]
+    );
+  });
 }
 
 /** Slack rejects duplicate ts within a conversation; bump by 1µs when needed. */
@@ -457,7 +480,8 @@ function quotedTextFor(
     return;
   }
   const author = quoted.senderId
-    ? ctx.users.get(quoted.senderId)?.name
+    ? (ctx.users.get(quoted.senderId)?.name ??
+      ctx.appNames?.get(quoted.senderId))
     : undefined;
   const body = messageText(quoted, textContext(ctx)).split('\n')[0];
   return author ? `*${author}:* ${body}` : body;
@@ -518,6 +542,7 @@ interface Sender {
  *   so it comes from the app's own account (see appAccounts in users.ts).
  * - In a DM, Slack keeps only messages from its two people (test 5): the
  *   app's file post comes from the first of them, with the app named first.
+ *   So does one from an app that has no account.
  */
 function senderOf(
   message: StoredMessage,
@@ -533,16 +558,13 @@ function senderOf(
     mapping?.name ??
     (message.senderId ? ctx.appNames?.get(message.senderId) : undefined) ??
     APP_FALLBACK_NAME;
-  if (message.attachmentKeys.length === 0) {
+  if (!carriesFiles(message, ctx.attachmentIndex, ctx.options.driveCopies)) {
     return { userId: mapping?.slackId ?? fallbackId, appName };
   }
-  if (ctx.plan.kind === 'dm') {
-    return { userId: fallbackId, prefix: `*${appName}:*` };
-  }
-  if (mapping) {
+  if (mapping && ctx.plan.kind !== 'dm') {
     return { userId: mapping.slackId };
   }
-  return { userId: fallbackId, appName };
+  return { userId: fallbackId, prefix: `*${escapeSlackText(appName)}:*` };
 }
 
 function buildOne(
@@ -577,7 +599,9 @@ function buildOne(
   }
 
   if (message.isDeleted && ctx.options.deletedPolicy === 'tombstone') {
-    result.text = TOMBSTONE_TEXT;
+    result.text = sender.prefix
+      ? `${sender.prefix} ${TOMBSTONE_TEXT}`
+      : TOMBSTONE_TEXT;
     return result;
   }
 
