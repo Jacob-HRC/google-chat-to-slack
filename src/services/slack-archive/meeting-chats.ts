@@ -78,20 +78,61 @@ export function headerTs(first: string, taken: Set<string>): string {
   return microsToSlackTs(micros);
 }
 
+/** How far below a meeting's first message a header's ts can have stepped. */
+const HEADER_TS_REACH = 64n;
+
+/**
+ * The ts of a header an earlier build gave this meeting, when `lost` lists
+ * it. That build put the header just below the meeting's first message
+ * (`headerTs`), so it is the first lost ts found stepping down from there.
+ * Pure.
+ */
+export function lostHeaderTs(
+  messages: StoredMessage[],
+  lost: Set<string>
+): string | undefined {
+  const first = messages
+    .map((m) => m.slackTs)
+    .filter(Boolean)
+    .sort()
+    .at(0);
+  if (!first) {
+    return;
+  }
+  const micros = slackTsToMicros(first);
+  for (let step = 1n; step <= HEADER_TS_REACH; step += 1n) {
+    const ts = microsToSlackTs(micros - step);
+    if (lost.has(ts)) {
+      return ts;
+    }
+  }
+}
+
 /**
  * Puts a meeting's messages in a thread under a header message. Mutates the
- * messages and returns the header. Pure apart from that.
+ * messages and returns the header. With `fixedTs` the header takes that ts,
+ * and comes back even with no messages to thread. Pure apart from that.
  */
 export function threadUnderHeader(
   messages: SlackExportMessage[],
   text: string,
-  taken: Set<string>
+  taken: Set<string>,
+  fixedTs?: string
 ): SlackExportMessage | undefined {
   const sorted = [...messages].sort((a, b) => a.ts.localeCompare(b.ts));
-  if (sorted.length === 0) {
+  if (sorted.length === 0 && !fixedTs) {
     return;
   }
-  const ts = headerTs(sorted[0].ts, taken);
+  const ts = fixedTs ?? headerTs(sorted[0].ts, taken);
+  if (sorted.length === 0) {
+    return {
+      type: 'message',
+      subtype: 'bot_message',
+      username: MEETING_HEADER_USERNAME,
+      ts,
+      text,
+    };
+  }
   for (const message of sorted) {
     message.thread_ts = ts;
     message.parent_user_id = undefined;

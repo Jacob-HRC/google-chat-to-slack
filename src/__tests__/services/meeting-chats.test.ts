@@ -265,6 +265,81 @@ describe('meeting chats', () => {
     }
   });
 
+  it('supplement: brings back a header Slack dropped, under its old ts', async () => {
+    const full = await build('fold');
+    const dm = full.conversations.find(
+      (c) =>
+        c.plan.kind === 'dm' &&
+        Object.values(c.days)
+          .flat()
+          .some((m) => m.reply_count)
+    );
+    const fullHeader = Object.values(dm?.days ?? {})
+      .flat()
+      .find((m) => m.reply_count);
+    expect(fullHeader).toBeDefined();
+    const imported = {
+      storeLastRun: 'run2',
+      conversations: full.manifest.conversations,
+      users: new Set(Object.keys(full.manifest.users)),
+      reinclude: new Set([fullHeader?.ts ?? '']),
+    };
+    const supplementOf = async (): Promise<ArchiveModel> =>
+      buildArchiveModel({
+        storeDir: dir,
+        teamId: 'T1',
+        spaceFilter: [],
+        skipBotDms: true,
+        spaceVisibility: 'private',
+        deletedPolicy: 'tombstone',
+        fileStrategy: 'manifest',
+        overrides: {},
+        meetingChats: 'fold',
+        imported,
+      });
+    const messagesOf = (model: ArchiveModel) =>
+      model.conversations.flatMap((c) => Object.values(c.days).flat());
+
+    // Nothing new: the header alone, as the full build wrote it.
+    const alone = messagesOf(await supplementOf());
+    expect(alone).toHaveLength(1);
+    expect(alone[0]).toMatchObject({
+      ts: fullHeader?.ts,
+      user: dm?.plan.members[0],
+      text: fullHeader?.text,
+    });
+    expect(alone[0].subtype).toBeUndefined();
+
+    // A new message threads under it.
+    const store = await openStore(dir);
+    const before = await loadMessages(store, 'MEET0oneone');
+    await saveMessages(store, 'MEET0oneone', [
+      ...before,
+      {
+        ...before[0],
+        name: 'spaces/MEET0oneone/messages/m9.m9',
+        messageId: 'm9.m9',
+        threadName: 'spaces/MEET0oneone/threads/m9',
+        createTime: '2025-04-01T15:30:00.000001Z',
+        slackTs: '1743521400.000001',
+        text: 'one more thing',
+        formattedText: 'one more thing',
+        firstSeenRun: 'run9',
+      },
+    ]);
+    try {
+      const withNew = messagesOf(await supplementOf());
+      expect(
+        withNew.map((m) => [m.ts === fullHeader?.ts, m.thread_ts])
+      ).toEqual([
+        [true, fullHeader?.ts],
+        [false, fullHeader?.ts],
+      ]);
+    } finally {
+      await saveMessages(store, 'MEET0oneone', before);
+    }
+  });
+
   it('channels: one private channel per meeting', async () => {
     const model = await build('channels');
     const names = model.groups.map((g) => g.name);

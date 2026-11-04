@@ -51,6 +51,7 @@ import {
 } from './imported';
 import {
   isMeetingChat,
+  lostHeaderTs,
   MEETING_HEADER_USERNAME,
   type MeetingChatMode,
   meetingHeaderText,
@@ -574,6 +575,30 @@ function seriesHome(
 }
 
 /**
+ * A meeting's header, with its messages threaded under it. A meeting the
+ * earlier import brought already has its header in Slack, under a ts this
+ * build can't work out from only the new messages, so its new messages go in
+ * without one. The exception is a header Slack dropped (it drops app posts
+ * in 1:1 DMs, test 7): the record lists its ts, and it goes in again there.
+ */
+function meetingHeader(
+  shared: Shared,
+  meeting: PendingMeeting,
+  messages: SlackExportMessage[],
+  home: ArchiveConversation
+): SlackExportMessage | undefined {
+  const text = meetingHeaderText(meeting.space);
+  const imported = shared.options.imported;
+  if (!imported?.conversations[meeting.space.spaceId]) {
+    return threadUnderHeader(messages, text, tsSet(home));
+  }
+  const lostTs = lostHeaderTs(meeting.messages, imported.reinclude);
+  return lostTs
+    ? threadUnderHeader(messages, text, tsSet(home), lostTs)
+    : undefined;
+}
+
+/**
  * Files each meeting chat with the conversation its people already have,
  * one thread per meeting. Runs after every other conversation is planned, so
  * a DM is found wherever it sat in the store.
@@ -600,16 +625,12 @@ function foldMeetings(shared: Shared, meetings: PendingMeeting[]): void {
       messageContext(shared, home.plan)
     );
     addAppMembers(home.plan, built.days, shared.appAccountIds);
-    // A meeting the earlier import brought already has its header in
-    // Slack, under a ts this build can't reproduce; a supplement's new
-    // messages for it go in without one.
-    const header = shared.options.imported?.conversations[meeting.space.spaceId]
-      ? undefined
-      : threadUnderHeader(
-          Object.values(built.days).flat(),
-          meetingHeaderText(meeting.space),
-          tsSet(home)
-        );
+    const header = meetingHeader(
+      shared,
+      meeting,
+      Object.values(built.days).flat(),
+      home
+    );
     if (header && home.plan.kind === 'dm') {
       carryHeaderInDm(header, home.plan);
     }
