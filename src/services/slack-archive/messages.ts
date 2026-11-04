@@ -546,9 +546,10 @@ interface Sender {
  * importer would drop it:
  * - With files, Slack drops an app post, text and all (test 4, 2026-11-04),
  *   so it comes from the app's own account (see appAccounts in users.ts).
- * - In a DM, Slack keeps only messages from its two people (test 5): the
- *   app's file post comes from the first of them, with the app named first.
- *   So does one from an app that has no account.
+ * - In a DM, Slack keeps only messages from its two people (test 5), and
+ *   of the full import's app posts in DMs it could be checked on, none
+ *   arrived. So any app post in a DM comes from the first of them, with
+ *   the app named first. So does a file post from an app with no account.
  */
 function senderOf(
   message: StoredMessage,
@@ -564,13 +565,17 @@ function senderOf(
     mapping?.name ??
     (message.senderId ? ctx.appNames?.get(message.senderId) : undefined) ??
     APP_FALLBACK_NAME;
+  const carried = {
+    userId: fallbackId,
+    prefix: `*${escapeSlackText(appName)}:*`,
+  };
+  if (ctx.plan.kind === 'dm') {
+    return carried;
+  }
   if (!carriesFiles(message, ctx.attachmentIndex, ctx.options.driveCopies)) {
     return { userId: mapping?.slackId ?? fallbackId, appName };
   }
-  if (mapping && ctx.plan.kind !== 'dm') {
-    return { userId: mapping.slackId };
-  }
-  return { userId: fallbackId, prefix: `*${escapeSlackText(appName)}:*` };
+  return mapping ? { userId: mapping.slackId } : carried;
 }
 
 function buildOne(

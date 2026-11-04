@@ -51,6 +51,7 @@ import {
 } from './imported';
 import {
   isMeetingChat,
+  MEETING_HEADER_USERNAME,
   type MeetingChatMode,
   meetingHeaderText,
   meetingSeries,
@@ -498,6 +499,21 @@ function directHome(
   return addConversation(shared.model, plan.spaceId, plan, emptyBuilt());
 }
 
+/**
+ * In a DM Slack keeps only its two people's messages, so a meeting header
+ * there comes from the first of them, with Google Meet named first. In
+ * place.
+ */
+function carryHeaderInDm(
+  header: SlackExportMessage,
+  plan: ConversationPlan
+): void {
+  header.user = plan.members[0];
+  header.subtype = undefined;
+  header.username = undefined;
+  header.text = `*${MEETING_HEADER_USERNAME}:* ${header.text}`;
+}
+
 /** One private channel per meeting series, for meetings too big or too small for a DM. */
 function seriesHome(
   shared: Shared,
@@ -584,11 +600,19 @@ function foldMeetings(shared: Shared, meetings: PendingMeeting[]): void {
       messageContext(shared, home.plan)
     );
     addAppMembers(home.plan, built.days, shared.appAccountIds);
-    const header = threadUnderHeader(
-      Object.values(built.days).flat(),
-      meetingHeaderText(meeting.space),
-      tsSet(home)
-    );
+    // A meeting the earlier import brought already has its header in
+    // Slack, under a ts this build can't reproduce; a supplement's new
+    // messages for it go in without one.
+    const header = shared.options.imported?.conversations[meeting.space.spaceId]
+      ? undefined
+      : threadUnderHeader(
+          Object.values(built.days).flat(),
+          meetingHeaderText(meeting.space),
+          tsSet(home)
+        );
+    if (header && home.plan.kind === 'dm') {
+      carryHeaderInDm(header, home.plan);
+    }
     for (const upload of model.uploads.slice(firstUpload)) {
       upload.threadTs = header?.ts;
     }

@@ -1028,6 +1028,12 @@ describe('app posts', () => {
       [USER_PASTOR, USER_KEN],
       [
         {
+          ...post('d0', '2025-10-01T09:00:00.000001Z', 'Reminder: notes due'),
+          name: `${APP_DM}/messages/d0.d0`,
+          space: { name: APP_DM },
+          thread: { name: `${APP_DM}/threads/d0` },
+        },
+        {
           ...dmPost,
           name: `${APP_DM}/messages/d1.d1`,
           space: { name: APP_DM },
@@ -1107,7 +1113,13 @@ describe('app posts', () => {
 
   it("has a DM's own person carry an app's file post, named first, since Slack drops anyone else's", () => {
     const dm = model.conversations.find((c) => c.plan.kind === 'dm');
-    const [carried] = Object.values(dm?.days ?? {}).flat();
+    const [reminder, carried] = Object.values(dm?.days ?? {}).flat();
+    // A text-only app post too: Slack keeps only the DM's two people's.
+    expect(reminder).toMatchObject({
+      user: dm?.plan.members[0],
+      text: '*Data Monitoring:* Reminder: notes due',
+    });
+    expect(reminder.subtype).toBeUndefined();
     expect(dm?.plan.members).toHaveLength(2);
     expect(carried.user).toBe(dm?.plan.members[0]);
     expect(carried.subtype).toBeUndefined();

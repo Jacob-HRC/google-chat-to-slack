@@ -4,6 +4,11 @@ import path from 'node:path';
 import type { chat_v1 } from 'googleapis';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  loadMessages,
+  openStore,
+  saveMessages,
+} from '../../services/export-store';
+import {
   type BuildArchiveOptions,
   buildArchiveModel,
 } from '../../services/slack-archive/builder';
@@ -198,9 +203,66 @@ describe('meeting chats', () => {
 
     const oneOnOne = model.conversations.filter((c) => c.plan.kind === 'dm');
     expect(oneOnOne.some((c) => c.messageCount === 2)).toBe(true);
+    // In a DM Slack keeps only its two people's messages, so the header
+    // comes from one of them, with Google Meet named.
+    const dm = oneOnOne.find((c) => c.messageCount === 2);
+    const dmHeader = Object.values(dm?.days ?? {})
+      .flat()
+      .find((m) => m.reply_count);
+    expect(dmHeader).toMatchObject({
+      user: dm?.plan.members[0],
+      text: '*Google Meet:* 📅 Pastor/Ken 1:1 - Apr 1 (Google Meet chat)',
+    });
+    expect(dmHeader?.subtype).toBeUndefined();
     expect(model.manifest.conversations.MEET0sync.mergedInto).toBe(
       group?.plan.name
     );
+  });
+
+  it('supplement: adds no second header to a meeting the import brought', async () => {
+    const full = await build('fold');
+    const store = await openStore(dir);
+    const before = await loadMessages(store, 'MEET0oneone');
+    await saveMessages(store, 'MEET0oneone', [
+      ...before,
+      {
+        ...before[0],
+        name: 'spaces/MEET0oneone/messages/m9.m9',
+        messageId: 'm9.m9',
+        threadName: 'spaces/MEET0oneone/threads/m9',
+        createTime: '2025-04-01T15:30:00.000001Z',
+        slackTs: '1743521400.000001',
+        text: 'one more thing',
+        formattedText: 'one more thing',
+        firstSeenRun: 'run9',
+      },
+    ]);
+    try {
+      const supplement = await buildArchiveModel({
+        storeDir: dir,
+        teamId: 'T1',
+        spaceFilter: [],
+        skipBotDms: true,
+        spaceVisibility: 'private',
+        deletedPolicy: 'tombstone',
+        fileStrategy: 'manifest',
+        overrides: {},
+        meetingChats: 'fold',
+        imported: {
+          storeLastRun: 'run2',
+          conversations: full.manifest.conversations,
+          users: new Set(Object.keys(full.manifest.users)),
+          reinclude: new Set(),
+        },
+      });
+      const messages = supplement.conversations.flatMap((c) =>
+        Object.values(c.days).flat()
+      );
+      expect(messages.map((m) => m.text)).toEqual(['one more thing']);
+      expect(messages[0].thread_ts).toBeUndefined();
+    } finally {
+      await saveMessages(store, 'MEET0oneone', before);
+    }
   });
 
   it('channels: one private channel per meeting', async () => {
