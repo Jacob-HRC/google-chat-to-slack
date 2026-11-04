@@ -437,13 +437,24 @@ archived, and a private channel never merges.
    ```bash
    pnpm start build-slack-archive <full build's options> \
      --exclude-imported data/slack-archive/imported/2026-11-03-full \
+     --input /home/itadmin/projects/gcts/data/workspace \
      --output data/slack-archive/hrc-supplement.zip
    ```
+
+   `--input` names the store by the path the export recorded. On T3,
+   `~/projects/gcts` is now a symlink to `~/projects/google-chat-to-slack`,
+   and Node resolves the working directory through it, so without
+   `--input` the build sees the stored file paths as outside the store and
+   stops.
 
    The record directory holds `import-record.json` (its `storeLastRun` is
    the cut-off), the full build's `*archive-manifest.json`, and
    `lost-messages.json` (`[{ "conversationName", "ts" }]`, the messages
-   Slack dropped; add to it if a check finds more). The build takes only
+   Slack dropped; add to it if a check finds more). It lists 102: the 40
+   app posts found after the import, plus every app post (29) and Meet
+   header (33) in a 1:1 DM, which Slack drops (test 7). A lost header comes
+   back under its old ts, carried by one of the DM's people. The build
+   takes only
    messages first stored after the cut-off, plus the lost ones. Public
    channels keep their imported names; private ones get `<name>-2`.
    Conversations with nothing new are left out, and the members channel
