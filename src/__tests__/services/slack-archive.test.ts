@@ -1,10 +1,22 @@
-import { mkdtemp, readFile, rm, stat, symlink } from 'node:fs/promises';
+import {
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { chat_v1 } from 'googleapis';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readArchiveCreated } from '../../services/channel-archiver';
-import { mergeSpace, openStore, saveUsers } from '../../services/export-store';
+import {
+  mergeSpace,
+  openStore,
+  saveAttachmentIndex,
+  saveUsers,
+} from '../../services/export-store';
 import { buildArchiveModel } from '../../services/slack-archive/builder';
 import { planConversation } from '../../services/slack-archive/conversations';
 import {
@@ -972,6 +984,16 @@ describe('app posts', () => {
             attachmentDataRef: { resourceName: 'CiQAapp1' },
           },
         ]),
+        // Its attachment never downloaded, so it carries no file.
+        post('a3', '2025-09-29T11:05:00.000001Z', 'Nothing to fetch', [
+          {
+            name: `${APP_SPACE}/messages/a3.a3/attachments/F3`,
+            contentName: 'Gone.pdf',
+            contentType: 'application/pdf',
+            source: 'UPLOADED_CONTENT',
+            attachmentDataRef: { resourceName: 'CiQAapp3' },
+          },
+        ]),
       ],
       fixture.attachmentIndex
     );
@@ -1008,6 +1030,21 @@ describe('app posts', () => {
       ],
       fixture.attachmentIndex
     );
+    // The two file posts downloaded; the third one's attachment didn't.
+    for (const [key, record] of Object.entries(fixture.attachmentIndex)) {
+      if (key.includes('/a2.a2/') || key.includes('/d1.d1/')) {
+        const localPath = path.join(dir, `${record.contentName}`);
+        // biome-ignore lint/nursery/noAwaitInLoop: fixture setup.
+        await writeFile(localPath, 'DATA');
+        fixture.attachmentIndex[key] = {
+          ...record,
+          status: 'downloaded',
+          localPath,
+          size: 4,
+        };
+      }
+    }
+    await saveAttachmentIndex(await openStore(dir), fixture.attachmentIndex);
     model = await buildArchiveModel({
       storeDir: dir,
       teamId: 'T1',
@@ -1068,6 +1105,16 @@ describe('app posts', () => {
     expect(carried.text.startsWith('*Data Monitoring:* Notes attached')).toBe(
       true
     );
+  });
+
+  it('keeps an app post whose attachment never downloaded as an app post', () => {
+    const gone = Object.values(channelOf(model)?.days ?? {})
+      .flat()
+      .find((m) => m.text.startsWith('Nothing to fetch'));
+    expect(gone).toMatchObject({
+      subtype: 'bot_message',
+      username: 'Data Monitoring',
+    });
   });
 
   it('names a mentioned app as Google Chat showed it', async () => {

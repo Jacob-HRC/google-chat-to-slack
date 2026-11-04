@@ -58,9 +58,11 @@ import {
 import {
   type BuiltMessages,
   buildConversationMessages,
+  carriesFiles,
   type DeletedPolicy,
   type DriveCopy,
   type FileStrategy,
+  isIncluded,
   type MessageBuildContext,
 } from './messages';
 import { indexMembersByEmail, type SlackMemberSnapshot } from './slack-members';
@@ -121,7 +123,8 @@ interface LoadedSpace {
 function addReferencedIds(
   { space, messages }: LoadedSpace,
   ids: Set<string>,
-  appsWithFiles: Set<string>
+  appsWithFiles: Set<string>,
+  postsFiles: (message: StoredMessage) => boolean
 ): void {
   for (const membership of space.memberships) {
     if (membership.chatUserId) {
@@ -131,7 +134,7 @@ function addReferencedIds(
   for (const message of messages) {
     if (message.senderId) {
       ids.add(message.senderId);
-      if (message.senderType === 'BOT' && message.attachmentKeys.length > 0) {
+      if (message.senderType === 'BOT' && postsFiles(message)) {
         appsWithFiles.add(message.senderId);
       }
     }
@@ -368,7 +371,10 @@ function addAppMembers(
   days: Record<string, SlackExportMessage[]>,
   appAccountIds: Set<string>
 ): void {
-  if (!(plan.kind === 'channel' || plan.kind === 'group')) {
+  if (
+    appAccountIds.size === 0 ||
+    !(plan.kind === 'channel' || plan.kind === 'group')
+  ) {
     return;
   }
   for (const message of Object.values(days).flat()) {
@@ -658,6 +664,32 @@ function warnAboutUnlisted(model: ArchiveModel, unlisted: string[]): void {
   }
 }
 
+/**
+ * Everyone the archive references, and the apps whose file posts will be
+ * built. Only file posts that will be built need an account: none in a
+ * skipped bot DM, outside a delta's window, or deleted and omitted.
+ */
+async function collectReferenced(
+  options: BuildArchiveOptions,
+  attachmentIndex: Record<string, AttachmentRecord>
+): Promise<{ ids: Set<string>; appsWithFiles: Set<string> }> {
+  const ids = new Set<string>();
+  const appsWithFiles = new Set<string>();
+  for await (const loaded of eachIncludedSpace(options.storeDir, options)) {
+    const skipped = Boolean(options.skipBotDms && loaded.space.isBotDm);
+    addReferencedIds(
+      loaded,
+      ids,
+      appsWithFiles,
+      (message) =>
+        !skipped &&
+        isIncluded(message, options) &&
+        carriesFiles(message, attachmentIndex, options.driveCopies)
+    );
+  }
+  return { ids, appsWithFiles };
+}
+
 export async function buildArchiveModel(
   options: BuildArchiveOptions
 ): Promise<ArchiveModel> {
@@ -669,11 +701,10 @@ export async function buildArchiveModel(
   const attachmentIndex = slimAttachmentIndex(await loadAttachmentIndex(store));
   // First pass: who is referenced. Users must be known before any message
   // can be built, and holding every conversation at once exhausts the heap.
-  const ids = new Set<string>();
-  const appsWithFiles = new Set<string>();
-  for await (const loaded of eachIncludedSpace(options.storeDir, options)) {
-    addReferencedIds(loaded, ids, appsWithFiles);
-  }
+  const { ids, appsWithFiles } = await collectReferenced(
+    options,
+    attachmentIndex
+  );
   const people: StoredUser[] = Array.from(ids)
     .map((id) => allUsers[id])
     .filter((u): u is StoredUser => Boolean(u));

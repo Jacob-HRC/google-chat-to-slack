@@ -62,9 +62,9 @@ export const APP_FALLBACK_NAME = 'Google Chat app';
  */
 export function appNameOf(user: StoredUser | undefined): string {
   return (
-    [user?.chatDisplayName, user?.fullName, user?.placeholderName].find(
-      (name) => name?.trim()
-    ) ?? APP_FALLBACK_NAME
+    [user?.chatDisplayName, user?.fullName, user?.placeholderName]
+      .map((name) => name?.trim())
+      .find((name) => name) ?? APP_FALLBACK_NAME
   );
 }
 
