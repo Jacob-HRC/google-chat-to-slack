@@ -1070,6 +1070,55 @@ describe('app posts', () => {
     );
   });
 
+  it('names a mentioned app as Google Chat showed it', async () => {
+    const MENTION_SPACE = 'spaces/EEEEmention';
+    await addFixtureSpace(
+      dir,
+      {
+        name: MENTION_SPACE,
+        displayName: 'Thanks',
+        spaceType: 'SPACE',
+        createTime: '2025-09-01T00:00:00Z',
+      },
+      [USER_PASTOR],
+      [
+        {
+          name: `${MENTION_SPACE}/messages/h1.h1`,
+          sender: { name: USER_PASTOR, type: 'HUMAN' },
+          createTime: '2025-09-29T10:58:00.000001Z',
+          text: 'Thanks @Data Monitoring',
+          formattedText: `Thanks <${USER_BOT}>`,
+          annotations: [
+            {
+              type: 'USER_MENTION',
+              startIndex: 7,
+              length: 16,
+              userMention: {
+                user: { name: USER_BOT, type: 'BOT' },
+                type: 'MENTION',
+              },
+            },
+          ],
+          space: { name: MENTION_SPACE },
+          thread: { name: `${MENTION_SPACE}/threads/h1` },
+        },
+      ]
+    );
+    // Here the app posted no file, so it has no account to mention.
+    const mentioned = await buildArchiveModel({
+      storeDir: dir,
+      teamId: 'T1',
+      spaceFilter: ['EEEEmention'],
+      skipBotDms: true,
+      spaceVisibility: 'private',
+      deletedPolicy: 'tombstone',
+      fileStrategy: 'manifest',
+      overrides: {},
+    });
+    const [thanks] = Object.values(mentioned.conversations[0].days).flat();
+    expect(thanks.text).toBe('Thanks @Data Monitoring');
+  });
+
   it('makes no account for an app that never posted a file', async () => {
     const plain = await buildArchiveModel({
       storeDir: dir,
