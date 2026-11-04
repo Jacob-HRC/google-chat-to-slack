@@ -1326,15 +1326,45 @@ describe('supplement to an earlier import', () => {
   it('gives a private channel a new name beside the imported one', async () => {
     const full = await build('private');
     expect(full.groups.map((g) => g.name)).toContain('general');
-    const supplement = await build('private', recordOf(full, []));
+    // Re-add the message with files, as if Slack had lost it.
+    const store = await openStore(dir);
+    const withFiles = (await loadMessages(store, GENERAL)).find(
+      (m) => m.attachmentKeys.length > 0
+    );
+    const supplement = await build(
+      'private',
+      recordOf(full, [withFiles?.slackTs ?? ''])
+    );
     const [general] = supplement.conversations;
     expect(general.plan.name).toBe('general-2');
     expect(general.plan.mergeInto).toBeUndefined();
     expect(
       Object.values(general.days)
         .flat()
-        .map((m) => m.text)
-    ).toEqual(['Posted after the import']);
+        .map((m) => m.ts)
+    ).toContain('1793869200.000001');
+    // Its files go to the new channel, not the name planning first gave.
+    expect(supplement.uploads.length).toBeGreaterThan(0);
+    expect(new Set(supplement.uploads.map((u) => u.conversationName))).toEqual(
+      new Set(['general-2'])
+    );
+  });
+
+  it("sends a merged channel's files to the channel it merges into", async () => {
+    const full = await build('public');
+    // Re-add the message with files, as if Slack had lost it.
+    const withFiles = (await loadMessages(await openStore(dir), GENERAL)).find(
+      (m) => m.attachmentKeys.length > 0
+    );
+    const supplement = await build(
+      'public',
+      recordOf(full, [withFiles?.slackTs ?? ''])
+    );
+    // Planning first names it general-2 (the roster lists general).
+    expect(supplement.uploads.length).toBeGreaterThan(0);
+    expect(new Set(supplement.uploads.map((u) => u.conversationName))).toEqual(
+      new Set(['general'])
+    );
   });
 
   it('reads a frozen import record', async () => {
