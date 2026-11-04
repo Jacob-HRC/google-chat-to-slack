@@ -137,16 +137,44 @@ Beside the ZIP you get `hrc-full.archive-manifest.json`,
 pnpm start serve-files --hosted-files data/slack-archive/hrc-full.hosted-files.json --check-only
 setsid -f nohup pnpm start serve-files \
   --hosted-files data/slack-archive/hrc-full.hosted-files.json \
-  --log data/slack-archive/hrc-full.served.jsonl \
   > data/slack-archive/hrc-full.serve-console.log 2>&1 < /dev/null
 XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user start gcts-slack-files-tunnel
 ```
+
+Requests are logged to `hrc-full.served.jsonl` beside the hosted-files list.
 
 The files go out through the named Cloudflare tunnel `gcts-slack-files`
 (config `~/.cloudflared/gcts-slack-files.yml`, run by the user unit
 `gcts-slack-files-tunnel.service`, which restarts by itself). It maps
 `slack-files.hrcstats.com` to `127.0.0.1:8787` and answers 404 to anything
 else. Its address never changes, so a restart only pauses fetching.
+
+The tunnel, its config and the unit live only on the T3 box, not in this
+repo. To set them up again (with `cloudflared` logged in to the Cloudflare
+account that holds `hrcstats.com`):
+
+```bash
+cloudflared tunnel create gcts-slack-files      # once; writes the credentials file
+cloudflared tunnel route dns gcts-slack-files slack-files.hrcstats.com
+```
+
+```yaml
+# ~/.cloudflared/gcts-slack-files.yml
+tunnel: <tunnel id>
+credentials-file: /home/itadmin/.cloudflared/<tunnel id>.json
+no-autoupdate: true
+ingress:
+  - hostname: slack-files.hrcstats.com
+    service: http://127.0.0.1:8787
+  - hostname: slack-connect.hrcstats.com   # step 6
+    path: ^/slack/
+    service: http://127.0.0.1:8788
+  - service: http_status:404
+```
+
+The unit runs `cloudflared tunnel --config ~/.cloudflared/gcts-slack-files.yml
+run gcts-slack-files` with `Restart=always`; lingering is on for the user, so
+it runs without a login.
 
 Don't use Tailscale Funnel. Slack fetched from `*.ts.net` until October 2026,
 then stopped: on 2026-11-03 it ignored clean Funnel URLs on both 8443 and
@@ -188,8 +216,10 @@ Import → Slack**. Upload the ZIP (not the sidecars).
   as the visibility list says. Names already taken in Slack were renamed at
   build time (`gchat-old-general` → `gchat-old-general-2`), so nothing merges
   into an existing channel.
-- Start the import. Leave `serve-files` running and watch its progress line.
-  The count of fetched files should climb toward the total.
+- Start the import. Leave `serve-files` running and watch its progress line
+  with `tail -f data/slack-archive/hrc-full.serve-console.log`. The count of
+  fetched files should start climbing within minutes; if it doesn't, Slack
+  isn't reaching the files and is dropping their messages.
 
 ## 5. Verify
 
@@ -212,13 +242,16 @@ A bot can't read other people's DMs, so those are reported as not readable,
 never as passed. Spot-check a few in the UI. The full report is written
 beside the ZIP as `hrc-full.verify-<time>.json`.
 
-Then stop the tunnel and the server, and delete the
-`slack-files.hrcstats.com` CNAME in Cloudflare:
+Then stop the tunnel and the server:
 
 ```bash
-XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user disable --now gcts-slack-files-tunnel
-kill "$(ss -ltnp | grep 127.0.0.1:8787 | grep -o 'pid=[0-9]*' | cut -d= -f2)"
+XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user stop gcts-slack-files-tunnel
+pid=$(ss -ltnp | grep 127.0.0.1:8787 | grep -o 'pid=[0-9]*' | cut -d= -f2)
+[ -n "$pid" ] && kill "$pid"
 ```
+
+Keep the `slack-files.hrcstats.com` CNAME until the last import (supplement
+included) is done; delete it in Cloudflare after that.
 
 ## 6. After the announcement: restore reactions
 
@@ -229,8 +262,9 @@ re-adds the reactions they made. Nobody else's token can add them.
 
 Setup, once:
 
-- The app has the user scopes and redirect URL in
-  `docs/slack-app-manifest.yaml` (reinstall after adding them).
+- The app has the user scopes in `docs/slack-app-manifest.yaml` (reinstall
+  after adding them) and the redirect URL
+  `https://slack-connect.hrcstats.com/slack/callback`.
 - The app's Client ID and Client Secret are in the keyring as
   `slack-client-id` and `slack-client-secret`, or set as `SLACK_CLIENT_ID`
   and `SLACK_CLIENT_SECRET`.
@@ -238,13 +272,23 @@ Setup, once:
 Then:
 
 ```bash
-pnpm start slack-connect            # add --allow <SlackId>… for a test
-tailscale funnel --bg --https=8443 --set-path=/slack http://127.0.0.1:8788/slack
-# send people https://server.tail3620c0.ts.net:8443/slack/connect
+systemd-run --user --unit=gcts-slack-connect --working-directory=$PWD \
+  pnpm start slack-connect --public-base https://slack-connect.hrcstats.com
+XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user start gcts-slack-files-tunnel
+# send people https://slack-connect.hrcstats.com/slack/connect
 pnpm start slack-connect --list     # who has connected
 pnpm start restore-reactions --archive data/slack-archive/hrc-full.zip --dry-run
 pnpm start restore-reactions --archive data/slack-archive/hrc-full.zip
 ```
+
+Tokens go into the keyring, and on the T3 box a keyring lasts only as long
+as the session that holds it. An SSH session's is revoked at logout, even
+for a process detached with `setsid`, so a token saved there is lost (the
+callback then fails with "No matching entry found in secure storage").
+Run slack-connect, and every command that reads the tokens, under one
+`systemd-run --user` unit, or within one SSH command. Tailscale Funnel
+(`ts.net:8443`) loaded only about a third of the time from outside on
+2026-11-04, so the page goes through the Cloudflare tunnel.
 
 Rerun `restore-reactions` as more people connect. It only adds reactions
 (one already there counts as done). Where a message's author has connected,
@@ -358,6 +402,8 @@ first.
   can keep showing the reversed copies of files as "This file was deleted".
   Reload the app (Cmd+Shift+R) before assuming anything is missing.
 - Later deltas: `--first-seen-after <runId>` or `--messages-since <time>`.
+  Pass `--plain-mentions` again (the full import's manifest records
+  `plainMentions: true`), or the delta's mentions notify people.
   Private channels can't be merged into, so a delta for a private channel
   arrives as a new channel. Deltas are clean for DMs only if Slack appends to
   the existing DM, which the pilot should confirm. A delta for a Space never
