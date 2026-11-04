@@ -30,6 +30,7 @@ import {
   reactionShortName,
   type TextContext,
 } from './text';
+import { APP_FALLBACK_NAME } from './users';
 
 export type DeletedPolicy = 'tombstone' | 'content' | 'omit';
 export type FileStrategy = 'manifest' | 'hosted';
@@ -68,6 +69,8 @@ export interface MessageBuildContext {
   fileCounts: { hosted: number; linkOnly: number; unavailable: number };
   /** Large hosted files by the ts of the message they belong to; see INLINE_FILE_MAX_BYTES. */
   largeFiles?: Map<string, SlackExportFile[]>;
+  /** Each app's name as Google Chat showed it, by chat user id; see appNameOf. */
+  appNames?: Map<string, string>;
 }
 
 export interface BuiltMessages {
@@ -506,6 +509,10 @@ function buildOne(
     ? ctx.users.get(message.senderId)
     : undefined;
   const isBot = message.senderType === 'BOT' || mapping?.status === 'bot';
+  // Slack's importer drops an app post that carries files, text and all
+  // (test 4, 2026-11-04). An app that posted files has an account of its own
+  // (see appAccounts in users.ts), and its file posts come from that account.
+  const isAppPost = isBot && !(mapping && message.attachmentKeys.length > 0);
   const userId = mapping?.slackId ?? ctx.plan.members[0] ?? '';
   const result: SlackExportMessage = {
     type: 'message',
@@ -513,9 +520,12 @@ function buildOne(
     text: '',
   };
 
-  if (isBot) {
+  if (isAppPost) {
     result.subtype = 'bot_message';
-    result.username = mapping?.name ?? 'Google Chat app';
+    result.username =
+      mapping?.name ??
+      (message.senderId ? ctx.appNames?.get(message.senderId) : undefined) ??
+      APP_FALLBACK_NAME;
   } else {
     result.user = userId;
     if (mapping) {

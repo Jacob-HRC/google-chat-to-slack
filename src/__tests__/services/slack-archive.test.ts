@@ -1,9 +1,10 @@
 import { mkdtemp, readFile, rm, stat, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import type { chat_v1 } from 'googleapis';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readArchiveCreated } from '../../services/channel-archiver';
-import { mergeSpace } from '../../services/export-store';
+import { mergeSpace, openStore, saveUsers } from '../../services/export-store';
 import { buildArchiveModel } from '../../services/slack-archive/builder';
 import { planConversation } from '../../services/slack-archive/conversations';
 import {
@@ -51,6 +52,7 @@ import {
   USER_PASTOR,
 } from '../fixtures/chat-api';
 import {
+  addFixtureSpace,
   createFixtureStore,
   FIXTURE_USERS,
   type FixtureStore,
@@ -910,5 +912,134 @@ describe('archive from a fixture store', () => {
       await readFile(path.join(out, 'unpacked', 'users.json'), 'utf-8')
     );
     expect(users).toHaveLength(model.users.length);
+  });
+});
+
+describe('app posts', () => {
+  const APP_SPACE = 'spaces/EEEEapps';
+  let dir: string;
+  let model: ArchiveModel;
+
+  beforeAll(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'gcts-apps-'));
+    const fixture = await createFixtureStore(dir);
+    // The app's registration and Chat display names differ, as for the
+    // budget app in the real store.
+    await saveUsers(await openStore(dir), {
+      ...fixture.users,
+      [USER_BOT]: {
+        ...fixture.users[USER_BOT],
+        fullName: 'Budget System',
+        chatDisplayName: 'Data Monitoring',
+      },
+    });
+    const post = (
+      id: string,
+      createTime: string,
+      text: string,
+      attachment?: chat_v1.Schema$Attachment[]
+    ): chat_v1.Schema$Message => ({
+      name: `${APP_SPACE}/messages/${id}.${id}`,
+      sender: { name: USER_BOT, type: 'BOT' },
+      createTime,
+      text,
+      space: { name: APP_SPACE },
+      thread: { name: `${APP_SPACE}/threads/${id}` },
+      attachment,
+    });
+    await addFixtureSpace(
+      dir,
+      {
+        name: APP_SPACE,
+        displayName: 'Budget Confirmations',
+        spaceType: 'SPACE',
+        createTime: '2025-09-01T00:00:00Z',
+      },
+      [USER_PASTOR],
+      [
+        post('a1', '2025-09-29T10:57:17.000001Z', 'System ready.'),
+        post('a2', '2025-09-29T11:01:45.000001Z', 'Budget confirmed', [
+          {
+            name: `${APP_SPACE}/messages/a2.a2/attachments/F1`,
+            contentName: 'Budget Review.xlsx',
+            contentType:
+              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            source: 'UPLOADED_CONTENT',
+            attachmentDataRef: { resourceName: 'CiQAapp1' },
+          },
+        ]),
+      ],
+      fixture.attachmentIndex
+    );
+    model = await buildArchiveModel({
+      storeDir: dir,
+      teamId: 'T1',
+      spaceFilter: ['EEEEapps'],
+      skipBotDms: true,
+      spaceVisibility: 'private',
+      deletedPolicy: 'tombstone',
+      fileStrategy: 'manifest',
+      overrides: {},
+      placeholderEmailDomain: 'chat-archive.example.com',
+    });
+  });
+
+  afterAll(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('names app posts as Google Chat showed the app', () => {
+    const [ready] = Object.values(model.conversations[0].days).flat();
+    expect(ready).toMatchObject({
+      subtype: 'bot_message',
+      username: 'Data Monitoring',
+      text: 'System ready.',
+    });
+    expect(ready.user).toBeUndefined();
+  });
+
+  it("posts an app's files from a deactivated account named after it, so Slack keeps them", () => {
+    const conversation = model.conversations[0];
+    const withFile = Object.values(conversation.days).flat()[1];
+    const account = model.users.find((u) => u.real_name === 'Data Monitoring');
+    expect(account).toMatchObject({ deleted: true, is_bot: false });
+    expect(account?.profile.email).toBe(
+      placeholderEmail(USER_BOT, 'chat-archive.example.com')
+    );
+    expect(withFile.subtype).toBeUndefined();
+    expect(withFile.user).toBe(account?.id);
+    expect(withFile.text).toContain('Budget confirmed');
+    expect(conversation.plan.members).toContain(account?.id);
+    expect(model.groups[0].members).toContain(account?.id);
+    expect(model.manifest.users[USER_BOT]).toMatchObject({
+      name: 'Data Monitoring',
+      status: 'bot',
+      importAction: 'deactivated',
+    });
+    expect(validateArchive(model).filter((i) => i.level === 'error')).toEqual(
+      []
+    );
+  });
+
+  it('makes no account for an app that never posted a file', async () => {
+    const plain = await buildArchiveModel({
+      storeDir: dir,
+      teamId: 'T1',
+      spaceFilter: ['DDDDbot'],
+      skipBotDms: false,
+      spaceVisibility: 'private',
+      deletedPolicy: 'tombstone',
+      fileStrategy: 'manifest',
+      overrides: {},
+      placeholderEmailDomain: 'chat-archive.example.com',
+    });
+    expect(plain.users.some((u) => u.real_name === 'Data Monitoring')).toBe(
+      false
+    );
+    const [post] = Object.values(plain.conversations[0].days).flat();
+    expect(post).toMatchObject({
+      subtype: 'bot_message',
+      username: 'Data Monitoring',
+    });
   });
 });

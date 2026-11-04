@@ -376,7 +376,8 @@ export async function addFixtureSpace(
   dir: string,
   raw: chat_v1.Schema$Space,
   memberIds: string[],
-  messages: chat_v1.Schema$Message[]
+  messages: chat_v1.Schema$Message[],
+  attachmentIndex?: Record<string, AttachmentRecord>
 ): Promise<void> {
   const store = await openStore(dir);
   const spaceId = spaceIdFromName(raw.name as string);
@@ -394,6 +395,18 @@ export async function addFixtureSpace(
     now: FIXTURE_NOW,
   });
   const stored = merge(raw.name as string, messages);
+  if (attachmentIndex) {
+    // Records go into the caller's copy of the index, which is saved here.
+    for (const message of stored) {
+      for (const record of buildAttachmentRecords(message, {
+        driveLinks: 'metadata',
+      })) {
+        attachmentIndex[record.key] = record;
+        message.attachmentKeys.push(record.key);
+      }
+    }
+    await saveAttachmentIndex(store, attachmentIndex);
+  }
   await saveSpace(store, space);
   await saveMessages(store, spaceId, stored);
   await saveState(store, {

@@ -16,6 +16,7 @@ import type {
   ConversationPlan,
   SlackExportChannel,
   SlackExportDm,
+  SlackExportMessage,
   SlackExportMpim,
   SlackExportTopic,
 } from '../../types/slack-export';
@@ -63,7 +64,7 @@ import {
   type MessageBuildContext,
 } from './messages';
 import { indexMembersByEmail, type SlackMemberSnapshot } from './slack-members';
-import { buildUsers, type UserOverride } from './users';
+import { appNameOf, buildUsers, type UserOverride } from './users';
 
 export interface BuildArchiveOptions {
   storeDir: string;
@@ -119,7 +120,8 @@ interface LoadedSpace {
 
 function addReferencedIds(
   { space, messages }: LoadedSpace,
-  ids: Set<string>
+  ids: Set<string>,
+  appsWithFiles: Set<string>
 ): void {
   for (const membership of space.memberships) {
     if (membership.chatUserId) {
@@ -129,6 +131,9 @@ function addReferencedIds(
   for (const message of messages) {
     if (message.senderId) {
       ids.add(message.senderId);
+      if (message.senderType === 'BOT' && message.attachmentKeys.length > 0) {
+        appsWithFiles.add(message.senderId);
+      }
     }
     for (const mention of message.mentions) {
       ids.add(mention);
@@ -317,6 +322,9 @@ function slimAttachmentIndex(
 interface Shared {
   model: ArchiveModel;
   byChatId: Map<string, ArchiveUserMapping>;
+  appNames: Map<string, string>;
+  /** Slack ids of the accounts that carry app posts with files. */
+  appAccountIds: Set<string>;
   attachmentIndex: Record<string, AttachmentRecord>;
   options: BuildArchiveOptions;
   fileCounts: { hosted: number; linkOnly: number; unavailable: number };
@@ -346,7 +354,29 @@ function messageContext(
     hostedFiles: model.hostedFiles,
     warnings: model.manifest.warnings,
     fileCounts: shared.fileCounts,
+    appNames: shared.appNames,
   };
+}
+
+/**
+ * Makes each app account that posts in a channel one of its members, in
+ * place (groups.json and the manifest hold the same array). DMs and group
+ * DMs are left alone: a member there would make it another conversation.
+ */
+function addAppMembers(
+  plan: ConversationPlan,
+  days: Record<string, SlackExportMessage[]>,
+  appAccountIds: Set<string>
+): void {
+  if (!(plan.kind === 'channel' || plan.kind === 'group')) {
+    return;
+  }
+  for (const message of Object.values(days).flat()) {
+    const user = message.user;
+    if (user && appAccountIds.has(user) && !plan.members.includes(user)) {
+      plan.members.push(user);
+    }
+  }
 }
 
 function recordSkipped(
@@ -514,6 +544,7 @@ function foldMeetings(shared: Shared, meetings: PendingMeeting[]): void {
       meeting.messages,
       messageContext(shared, home.plan)
     );
+    addAppMembers(home.plan, built.days, shared.appAccountIds);
     const header = threadUnderHeader(
       Object.values(built.days).flat(),
       meetingHeaderText(meeting.space),
@@ -639,8 +670,9 @@ export async function buildArchiveModel(
   // First pass: who is referenced. Users must be known before any message
   // can be built, and holding every conversation at once exhausts the heap.
   const ids = new Set<string>();
+  const appsWithFiles = new Set<string>();
   for await (const loaded of eachIncludedSpace(options.storeDir, options)) {
-    addReferencedIds(loaded, ids);
+    addReferencedIds(loaded, ids, appsWithFiles);
   }
   const people: StoredUser[] = Array.from(ids)
     .map((id) => allUsers[id])
@@ -649,6 +681,7 @@ export async function buildArchiveModel(
     teamId: options.teamId,
     overrides: options.overrides,
     placeholderEmailDomain: options.placeholderEmailDomain,
+    appAccounts: appsWithFiles,
     slackMembersByEmail: options.slackMembers
       ? indexMembersByEmail(options.slackMembers)
       : undefined,
@@ -671,10 +704,15 @@ export async function buildArchiveModel(
   }
   countPeople(model, byChatId);
   warnAboutInputs(model, options, ids, allUsers);
+  const apps = people.filter((p) => p.status === 'bot');
 
   const shared: Shared = {
     model,
     byChatId,
+    appNames: new Map(apps.map((app) => [app.chatUserId, appNameOf(app)])),
+    appAccountIds: new Set(
+      apps.flatMap((app) => byChatId.get(app.chatUserId)?.slackId ?? [])
+    ),
     attachmentIndex,
     options,
     fileCounts: { hosted: 0, linkOnly: 0, unavailable: 0 },
@@ -692,6 +730,11 @@ export async function buildArchiveModel(
       unlisted: [],
     },
   };
+  if (shared.appAccountIds.size > 0 && !options.placeholderEmailDomain) {
+    model.manifest.warnings.push(
+      `${shared.appAccountIds.size} app(s) posted files and get an account with no address; pass --placeholder-email-domain or Slack may drop those posts`
+    );
+  }
   const meetingMode = options.meetingChats ?? 'fold';
   const meetings: PendingMeeting[] = [];
 
@@ -724,6 +767,7 @@ export async function buildArchiveModel(
       messages,
       messageContext(shared, plan)
     );
+    addAppMembers(plan, built.days, shared.appAccountIds);
     addConversation(model, space.spaceId, plan, built);
   }
   foldMeetings(shared, meetings);
