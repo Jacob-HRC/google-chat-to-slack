@@ -401,6 +401,14 @@ first.
 - After a Reverse Import and a re-import of the same archive, the desktop app
   can keep showing the reversed copies of files as "This file was deleted".
   Reload the app (Cmd+Shift+R) before assuming anything is missing.
+- Slack's importer skips a channel marked `is_archived` in the ZIP entirely
+  (test 5, 2026-11-04), so the builder never sets it. Archive channels after
+  the import with archive-channels.
+- App posts: Slack drops an app post (`bot_message`) that carries files, and
+  in a DM it drops any message from someone who isn't one of its two people
+  (test 5). The builder therefore posts an app's files from an account named
+  after the app (in channels and group DMs), or, in a DM, from the DM's
+  first person with "*App name:*" in front.
 - Later deltas: `--first-seen-after <runId>` or `--messages-since <time>`.
   Pass `--plain-mentions` again (the full import's manifest records
   `plainMentions: true`), or the delta's mentions notify people.

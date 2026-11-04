@@ -499,6 +499,50 @@ function fillBody(
   }
 }
 
+interface Sender {
+  /** Who the message is from in Slack. */
+  userId: string;
+  /** Set for an app post (`bot_message`): the name it carries. */
+  appName?: string;
+  /** Set when a person in the conversation carries an app's post: "*App:*". */
+  prefix?: string;
+}
+
+/**
+ * Who a message comes from in Slack. People post as themselves. An app
+ * post stays an app post under the app's name, except where Slack's
+ * importer would drop it:
+ * - With files, Slack drops an app post, text and all (test 4, 2026-11-04),
+ *   so it comes from the app's own account (see appAccounts in users.ts).
+ * - In a DM, Slack keeps only messages from its two people (test 5): the
+ *   app's file post comes from the first of them, with the app named first.
+ */
+function senderOf(
+  message: StoredMessage,
+  mapping: ArchiveUserMapping | undefined,
+  ctx: MessageBuildContext
+): Sender {
+  const fallbackId = ctx.plan.members[0] ?? '';
+  const isApp = message.senderType === 'BOT' || mapping?.status === 'bot';
+  if (!isApp) {
+    return { userId: mapping?.slackId ?? fallbackId };
+  }
+  const appName =
+    mapping?.name ??
+    (message.senderId ? ctx.appNames?.get(message.senderId) : undefined) ??
+    APP_FALLBACK_NAME;
+  if (message.attachmentKeys.length === 0) {
+    return { userId: mapping?.slackId ?? fallbackId, appName };
+  }
+  if (ctx.plan.kind === 'dm') {
+    return { userId: fallbackId, prefix: `*${appName}:*` };
+  }
+  if (mapping) {
+    return { userId: mapping.slackId };
+  }
+  return { userId: fallbackId, appName };
+}
+
 function buildOne(
   message: StoredMessage,
   ts: string,
@@ -508,27 +552,20 @@ function buildOne(
   const mapping = message.senderId
     ? ctx.users.get(message.senderId)
     : undefined;
-  const isBot = message.senderType === 'BOT' || mapping?.status === 'bot';
-  // Slack's importer drops an app post that carries files, text and all
-  // (test 4, 2026-11-04). An app that posted files has an account of its own
-  // (see appAccounts in users.ts), and its file posts come from that account.
-  const isAppPost = isBot && !(mapping && message.attachmentKeys.length > 0);
-  const userId = mapping?.slackId ?? ctx.plan.members[0] ?? '';
+  const sender = senderOf(message, mapping, ctx);
+  const { userId } = sender;
   const result: SlackExportMessage = {
     type: 'message',
     ts,
     text: '',
   };
 
-  if (isAppPost) {
+  if (sender.appName) {
     result.subtype = 'bot_message';
-    result.username =
-      mapping?.name ??
-      (message.senderId ? ctx.appNames?.get(message.senderId) : undefined) ??
-      APP_FALLBACK_NAME;
+    result.username = sender.appName;
   } else {
     result.user = userId;
-    if (mapping) {
+    if (mapping && !sender.prefix) {
       result.user_profile = {
         real_name: mapping.name,
         display_name: mapping.name,
@@ -543,6 +580,11 @@ function buildOne(
   }
 
   fillBody(result, message, byName, userId, ctx);
+  if (sender.prefix) {
+    result.text = result.text
+      ? `${sender.prefix} ${result.text}`
+      : sender.prefix;
+  }
   if (message.lastUpdateTime && !message.isDeleted) {
     result.edited = { user: userId, ts: toSlackTs(message.lastUpdateTime) };
   }

@@ -698,8 +698,12 @@ Changes:
   import.
 - Test: `app posts` in `slack-archive.test.ts`.
 
-Untested in Slack: an app account's message in a DM it isn't a member of
-(the lost Google Meet post sat in a meeting chat folded into a DM). Check
-that with a test ZIP before the supplement. Already-imported app posts in
+Test 5 (2026-11-04) settled the DM case: in a DM, Slack dropped both a file
+post and a text post from the app account, which isn't one of the DM's two
+people, though it fetched the file. In a group DM the same post arrived, and
+in a private channel the account (a member) posted fine. So in a DM an app's
+file post now comes from the DM's first person, with "*App name:*" in front
+(`senderOf` in messages.ts). Test 5 also showed that a channel marked
+`is_archived` in the ZIP isn't imported at all. Already-imported app posts in
 public channels and DMs keep "Google Chat app"; imported messages can't be
 edited.
