@@ -673,3 +673,33 @@ Pilot left in place for now; reverse before the full import.
 - The rebuild needs a fresh `slack-members` snapshot first. The reversed
   import left its 127 deactivated accounts, and those now merge instead of
   being created again.
+
+## App posts: real names, and file posts from an app account (2026-11-04)
+
+The full import lost 40 messages, all app posts (`bot_message`). Test 4
+showed Slack's importer drops an app post that carries files, text and all,
+while an app post without files arrives. It also showed that every app post
+was labelled "Google Chat app": `buildUsers` skips bots, so `mapping?.name`
+was always undefined.
+
+Changes:
+- `users.ts`: `appNameOf` picks the app's Chat display name first (what
+  people saw, e.g. "Data Monitoring" rather than the registration name
+  "Budget System"). `buildUsers` takes `appAccounts`, the apps that posted
+  files, and builds each a deactivated account named after the app, with a
+  stand-in address from `--placeholder-email-domain`. Its mapping keeps
+  `status: 'bot'`, so it is never treated as a participant.
+- `messages.ts`: app posts carry the app's name. An app post with
+  attachments comes from the app's account as an ordinary message.
+- `builder.ts`: the first pass collects apps with file posts; the account is
+  added as a member of each channel it posts in (not DMs or group DMs,
+  where a third member would make it another conversation). A build without
+  a placeholder domain warns, since an account with no address may not
+  import.
+- Test: `app posts` in `slack-archive.test.ts`.
+
+Untested in Slack: an app account's message in a DM it isn't a member of
+(the lost Google Meet post sat in a meeting chat folded into a DM). Check
+that with a test ZIP before the supplement. Already-imported app posts in
+public channels and DMs keep "Google Chat app"; imported messages can't be
+edited.

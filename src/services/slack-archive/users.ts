@@ -43,6 +43,34 @@ export interface BuildUsersOptions {
    * deactivated; the importer still merges on matching email.
    */
   slackMembersByEmail?: Map<string, SlackMember>;
+  /**
+   * Apps (chat user ids) that posted files. Slack's importer drops an app
+   * post (`bot_message`) that carries files, text and all, so each of these
+   * apps gets a deactivated account named after it, and its file posts come
+   * from that account instead. Its other posts stay app posts.
+   */
+  appAccounts?: Set<string>;
+}
+
+/** What an app post carries when the export has no name for the app. */
+export const APP_FALLBACK_NAME = 'Google Chat app';
+
+/**
+ * The name Google Chat showed for an app. That is its Chat display name
+ * ("Data Monitoring"), which can differ from the name in the app's
+ * registration ("Budget System").
+ */
+export function appNameOf(user: StoredUser | undefined): string {
+  return (
+    [user?.chatDisplayName, user?.fullName, user?.placeholderName].find(
+      (name) => name?.trim()
+    ) ?? APP_FALLBACK_NAME
+  );
+}
+
+/** An app as the person-shaped record its stand-in account is built from. */
+function asAppAccount(app: StoredUser): StoredUser {
+  return { ...app, fullName: appNameOf(app), email: undefined };
 }
 
 export interface BuiltUsers {
@@ -186,7 +214,10 @@ export function buildUsers(
   const merged: [string, string][] = [];
 
   for (const person of sorted) {
-    if (!needsSlackAccount(person)) {
+    const isAppAccount =
+      person.status === 'bot' &&
+      Boolean(options.appAccounts?.has(person.chatUserId));
+    if (!(needsSlackAccount(person) || isAppAccount)) {
       continue;
     }
     if (person.aliasOf) {
@@ -194,7 +225,11 @@ export function buildUsers(
       merged.push([person.chatUserId, person.aliasOf]);
       continue;
     }
-    const row = buildRow(person, options, used);
+    const row = buildRow(
+      isAppAccount ? asAppAccount(person) : person,
+      options,
+      used
+    );
     users.push(row.user);
     byChatId.set(person.chatUserId, row.mapping);
   }
