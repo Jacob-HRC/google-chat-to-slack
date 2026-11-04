@@ -707,3 +707,41 @@ file post now comes from the DM's first person, with "*App name:*" in front
 `is_archived` in the ZIP isn't imported at all. Already-imported app posts in
 public channels and DMs keep "Google Chat app"; imported messages can't be
 edited.
+
+## Supplemental import (2026-11-04)
+
+Test 6 (a DM, a group DM, an open and an archived public channel, a private
+channel; imported, then a second ZIP with one new message each): DMs and
+group DMs take new messages in place; a public channel merges unless it is
+archived (then the import screen offers no merge target); a private channel
+never merges and Slack names the new one `<name>2`. "Direct messages between
+imported users" starts unticked on the import screen.
+
+Built:
+- `imported.ts`: `loadImportedRecord` reads the frozen record directory;
+  `nameForSupplement` keeps a public channel's imported name (`mergeInto`)
+  and gives a private one `<name>-2`; every imported channel name is
+  reserved.
+- `--exclude-imported <dir>`: cut-off is the record's `storeLastRun`
+  (`firstSeenRun` after it), plus `lost-messages.json` (`reincludeTs`).
+  Empty conversations are dropped (manifest: skipped "nothing new since the
+  earlier import"); the members channel only for new people. Validation
+  allows the intended merges. A meeting already imported gets no second
+  header (its ts can't be reproduced).
+- `archive-channels --unarchive` reopens the public channels a supplement
+  merges into; `isDeltaBuild` is false for a supplement, so its `-2` private
+  channels are archived normally.
+- Found on the real store: run ids compared as text put `vault-<time>` after
+  every export run, so a delta took all 15,283 Vault messages again.
+  `compareRunIds` compares their times.
+- DMs: every app post and Google Meet header in a DM now comes from the DM's
+  first person with "*App:*" (of the full import's app posts in readable DMs,
+  the only one is missing). The full import's 31 DM app posts and 33 DM
+  headers may have been dropped; unverifiable without a test or the people's
+  tokens. If confirmed, add their ts to lost-messages.json.
+
+Proof: unit tests; a real supplement build against the 2026-11-03 record
+(40 messages: the 38 budget posts in `gchat-old-budget-2026-it-confirmations-2`
+from the Data Monitoring account, the Google Meet recap and the Able Poll post
+carried in their DMs; validation clean); `--unarchive` and re-archive run live
+on a throwaway public channel `gcts-unarchive-test`.

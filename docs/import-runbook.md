@@ -407,27 +407,77 @@ first.
 - App posts: Slack drops an app post (`bot_message`) that carries files, and
   in a DM it drops any message from someone who isn't one of its two people
   (test 5). The builder therefore posts an app's files from an account named
-  after the app (in channels and group DMs), or, in a DM, from the DM's
-  first person with "*App name:*" in front.
-- Later deltas: `--first-seen-after <runId>` or `--messages-since <time>`.
-  Pass `--plain-mentions` again (the full import's manifest records
-  `plainMentions: true`), or the delta's mentions notify people.
-  Private channels can't be merged into, so a delta for a private channel
-  arrives as a new channel. Deltas are clean for DMs only if Slack appends to
-  the existing DM, which the pilot should confirm. A delta for a Space never
-  lands in its archived `gchat-old-` channel. A public one builds as a new
-  `gchat-old-<name>-2`, because the roster lists archived public channels as
-  taken. A private one doesn't: the bot isn't in the imported private
-  channels, so the roster can't see their names, and the delta reuses
-  `gchat-old-<name>`. What the importer does with that clash is untested.
-  The delta's channel has the same name and created time as the full
-  import's, so archive-channels would find the old one. For a delta build it
-  never archives a private channel and puts none on the admin list: it
-  reports each `check-delta` (or `not-imported` for a namesake) and lists
-  them. Check where those deltas landed and archive them by hand.
-- Take a fresh `slack-members` roster after the full import and before
-  building a delta. The `-2` naming for public deltas depends on the roster
-  listing the full import's channels; with an older roster the delta reuses
-  the name and archive-channels matches the old channel instead.
+  after the app (in channels and group DMs). In a DM every app post, and a
+  Google Meet header, comes from the DM's first person with "*App name:*"
+  in front.
+- For anything after the full import, use the supplement below, not
+  `--first-seen-after` or `--messages-since` alone: those keep the full
+  import's names, so a private channel's delta clashes with the original
+  and archive-channels can't tell them apart (it reports `check-delta`).
+- Run ids are compared by their time, so messages recovered by the Vault
+  import (`vault-<time>`) count as stored when that import ran.
+
+## Supplemental import
+
+Brings in what the full import didn't: messages stored since its build, and
+the ones Slack lost. Tested end to end on 2026-11-04 (test 6): a DM and a
+group DM take new messages in place, a public channel merges if it isn't
+archived, and a private channel never merges.
+
+1. Run the delta export, then take a fresh roster:
+
+   ```bash
+   pnpm start export-workspace --since 30d
+   pnpm start slack-members
+   ```
+
+2. Build against the frozen record of the full import. Use the full
+   build's options, including `--plain-mentions`, plus `--exclude-imported`:
+
+   ```bash
+   pnpm start build-slack-archive <full build's options> \
+     --exclude-imported data/slack-archive/imported/2026-11-03-full \
+     --output data/slack-archive/hrc-supplement.zip
+   ```
+
+   The record directory holds `import-record.json` (its `storeLastRun` is
+   the cut-off), the full build's `*archive-manifest.json`, and
+   `lost-messages.json` (`[{ "conversationName", "ts" }]`, the messages
+   Slack dropped; add to it if a check finds more). The build takes only
+   messages first stored after the cut-off, plus the lost ones. Public
+   channels keep their imported names; private ones get `<name>-2`.
+   Conversations with nothing new are left out, and the members channel
+   only appears for people the full import didn't have.
+
+3. Unarchive the public channels it merges into. Slack won't merge into an
+   archived channel; it offers no merge target and creates a new one:
+
+   ```bash
+   pnpm start archive-channels --archive data/slack-archive/hrc-supplement.zip --unarchive --dry-run
+   pnpm start archive-channels --archive data/slack-archive/hrc-supplement.zip --unarchive
+   ```
+
+4. Serve the files (section 2), and import. On the import screen:
+   - **Tick "Direct messages between imported users"** under "Also
+     include…". It starts unticked, and without it every DM and group DM is
+     skipped.
+   - "Channels with a matching name": **Merge channels with existing Slack
+     channels**. Each public channel should show its existing channel as the
+     merge target.
+   - The `-2` private channels have no matching name: **Create new
+     channels, maintaining privacy**.
+
+5. Verify, give new accounts their names (Slack names them with a slug;
+   `data/slack-archive/rename-users.py` on the T3 box does it from the
+   manifest), then archive again. This re-archives the merged public channels and archives
+   the `-2` private ones with connected members' tokens:
+
+   ```bash
+   pnpm start verify-slack --archive data/slack-archive/hrc-supplement.zip
+   pnpm start archive-channels --archive data/slack-archive/hrc-supplement.zip
+   ```
+
+Also:
+
 - If a kept pilot was a Space, it was built without the prefix and isn't in
   the full manifest. Rename and archive its channel by hand.
