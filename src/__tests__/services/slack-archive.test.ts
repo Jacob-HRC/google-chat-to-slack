@@ -56,6 +56,7 @@ import {
   createFixtureStore,
   FIXTURE_USERS,
   type FixtureStore,
+  USER_KEN,
 } from '../helpers/store-fixture';
 
 const USER_ID_REGEX = /^U[0-9A-Z]{10}$/;
@@ -917,6 +918,9 @@ describe('archive from a fixture store', () => {
 
 describe('app posts', () => {
   const APP_SPACE = 'spaces/EEEEapps';
+  const APP_DM = 'spaces/EEEEappdm';
+  const channelOf = (built: ArchiveModel) =>
+    built.conversations.find((c) => c.plan.kind === 'group');
   let dir: string;
   let model: ArchiveModel;
 
@@ -971,10 +975,43 @@ describe('app posts', () => {
       ],
       fixture.attachmentIndex
     );
+    // A DM, where Slack keeps only messages from its two people.
+    const dmPost = post('d1', '2025-10-02T09:00:00.000001Z', 'Notes attached', [
+      {
+        name: `${APP_SPACE}/messages/d1.d1/attachments/F2`,
+        contentName: 'Notes.docx',
+        contentType:
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        source: 'UPLOADED_CONTENT',
+        attachmentDataRef: { resourceName: 'CiQAapp2' },
+      },
+    ]);
+    await addFixtureSpace(
+      dir,
+      {
+        name: APP_DM,
+        spaceType: 'DIRECT_MESSAGE',
+        createTime: '2025-10-01T00:00:00Z',
+      },
+      [USER_PASTOR, USER_KEN],
+      [
+        {
+          ...dmPost,
+          name: `${APP_DM}/messages/d1.d1`,
+          space: { name: APP_DM },
+          thread: { name: `${APP_DM}/threads/d1` },
+          attachment: dmPost.attachment?.map((a) => ({
+            ...a,
+            name: `${APP_DM}/messages/d1.d1/attachments/F2`,
+          })),
+        },
+      ],
+      fixture.attachmentIndex
+    );
     model = await buildArchiveModel({
       storeDir: dir,
       teamId: 'T1',
-      spaceFilter: ['EEEEapps'],
+      spaceFilter: ['EEEEapps', 'EEEEappdm'],
       skipBotDms: true,
       spaceVisibility: 'private',
       deletedPolicy: 'tombstone',
@@ -989,7 +1026,7 @@ describe('app posts', () => {
   });
 
   it('names app posts as Google Chat showed the app', () => {
-    const [ready] = Object.values(model.conversations[0].days).flat();
+    const [ready] = Object.values(channelOf(model)?.days ?? {}).flat();
     expect(ready).toMatchObject({
       subtype: 'bot_message',
       username: 'Data Monitoring',
@@ -999,8 +1036,8 @@ describe('app posts', () => {
   });
 
   it("posts an app's files from a deactivated account named after it, so Slack keeps them", () => {
-    const conversation = model.conversations[0];
-    const withFile = Object.values(conversation.days).flat()[1];
+    const conversation = channelOf(model);
+    const withFile = Object.values(conversation?.days ?? {}).flat()[1];
     const account = model.users.find((u) => u.real_name === 'Data Monitoring');
     expect(account).toMatchObject({ deleted: true, is_bot: false });
     expect(account?.profile.email).toBe(
@@ -1009,7 +1046,7 @@ describe('app posts', () => {
     expect(withFile.subtype).toBeUndefined();
     expect(withFile.user).toBe(account?.id);
     expect(withFile.text).toContain('Budget confirmed');
-    expect(conversation.plan.members).toContain(account?.id);
+    expect(conversation?.plan.members).toContain(account?.id);
     expect(model.groups[0].members).toContain(account?.id);
     expect(model.manifest.users[USER_BOT]).toMatchObject({
       name: 'Data Monitoring',
@@ -1018,6 +1055,18 @@ describe('app posts', () => {
     });
     expect(validateArchive(model).filter((i) => i.level === 'error')).toEqual(
       []
+    );
+  });
+
+  it("has a DM's own person carry an app's file post, named first, since Slack drops anyone else's", () => {
+    const dm = model.conversations.find((c) => c.plan.kind === 'dm');
+    const [carried] = Object.values(dm?.days ?? {}).flat();
+    expect(dm?.plan.members).toHaveLength(2);
+    expect(carried.user).toBe(dm?.plan.members[0]);
+    expect(carried.subtype).toBeUndefined();
+    expect(carried.user_profile).toBeUndefined();
+    expect(carried.text.startsWith('*Data Monitoring:* Notes attached')).toBe(
+      true
     );
   });
 
